@@ -13,7 +13,7 @@ def _clear_settings_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_env(monkeypatch):
+def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith(("BOT_TOKEN", "ADMIN_IDS", "IBSNG_", "POSTGRES_", "REDIS_", "STRIPE_", "CRYPTO_GATEWAY_")):
             monkeypatch.delenv(key, raising=False)
@@ -27,7 +27,7 @@ def _isolated_env(monkeypatch):
     _clear_settings_cache()
 
 
-def test_settings_load_with_required_fields():
+def test_settings_load_with_required_fields() -> None:
     from app.config import get_settings
 
     settings = get_settings()
@@ -37,7 +37,7 @@ def test_settings_load_with_required_fields():
     assert settings.webhook_port == 8090
 
 
-def test_settings_admin_id_list_parses_csv(monkeypatch):
+def test_settings_admin_id_list_parses_csv(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import get_settings
 
     monkeypatch.setenv("ADMIN_IDS", "111,222, 333")
@@ -45,7 +45,7 @@ def test_settings_admin_id_list_parses_csv(monkeypatch):
     assert get_settings().admin_id_list == [111, 222, 333]
 
 
-def test_settings_rejects_blank_isp_name(monkeypatch):
+def test_settings_rejects_blank_isp_name(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import Settings
 
     monkeypatch.setenv("IBSNG_ISP_NAME", "   ")
@@ -53,7 +53,7 @@ def test_settings_rejects_blank_isp_name(monkeypatch):
         Settings(_env_file=None)
 
 
-def test_settings_database_and_redis_urls():
+def test_settings_database_and_redis_urls() -> None:
     from app.config import get_settings
 
     settings = get_settings()
