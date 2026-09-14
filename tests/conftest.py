@@ -44,6 +44,9 @@ from tests.fakes.fake_bot_session import FakeBotSession  # noqa: E402
 from tests.fakes.fake_ibsng_server import FakeIBSngServer  # noqa: E402
 from tests.factories import FAKE_ADMIN_ID  # noqa: E402,F401
 
+# Import all models so they're registered in Base.metadata
+from app.db.models import AdminUser, AppConfig, BotUser, Group, Plan  # noqa: E402,F401
+
 
 @pytest.fixture(scope="session")
 def ibsng_server() -> Generator[FakeIBSngServer, None, None]:
@@ -55,6 +58,15 @@ def ibsng_server() -> Generator[FakeIBSngServer, None, None]:
 
 @pytest.fixture(scope="session", autouse=True)
 def _migrate_test_database(ibsng_server: FakeIBSngServer) -> Generator[None, None, None]:
+    # Downgrade to base to ensure clean state
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "base"],
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        capture_output=True,
+        text=True,
+    )
+    # Ignore errors if tables don't exist
+
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -76,6 +88,30 @@ async def _clean_database() -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         if table_names:
             await conn.execute(text(f"TRUNCATE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
+
+    # Re-seed the catalog data
+    async with engine.begin() as conn:
+        groups_data = [
+            {"name": "HL-2W"},
+            {"name": "HL-1M"},
+            {"name": "HL-2M"},
+            {"name": "HL-3M"},
+        ]
+        for group_data in groups_data:
+            await conn.execute(text("INSERT INTO groups (name) VALUES (:name)"), group_data)
+
+        plans_data = [
+            {"name": "2 Weeks", "duration_days": 14, "data_cap_mb": 2048, "price_usd": "2.50", "group_name": "HL-2W", "sort_order": 0},
+            {"name": "1 Month", "duration_days": 30, "data_cap_mb": 5120, "price_usd": "5.00", "group_name": "HL-1M", "sort_order": 1},
+            {"name": "2 Months", "duration_days": 60, "data_cap_mb": 10240, "price_usd": "10.00", "group_name": "HL-2M", "sort_order": 2},
+            {"name": "3 Months", "duration_days": 90, "data_cap_mb": 102400, "price_usd": "30.00", "group_name": "HL-3M", "sort_order": 3},
+        ]
+        for plan_data in plans_data:
+            await conn.execute(
+                text("INSERT INTO plans (name, duration_days, data_cap_mb, price_usd, group_name, sort_order) VALUES (:name, :duration_days, :data_cap_mb, :price_usd, :group_name, :sort_order)"),
+                plan_data
+            )
+
     yield
 
 
