@@ -147,10 +147,20 @@ whatever is confirmed, matching its existing documentation style.
 
 Design:
 
-- `IBSngClient.get_user_data_usage(user_id)` calls
-  `user_balance.getUserBalanceInfoByUserID` (already used for
-  `get_user_balances`, just not for quota today) and returns
-  `(used_mb, total_mb)` or `None` if unavailable.
+- `IBSngClient.get_user_data_usage(user_id)` reads consumed/total
+  traffic. **Not `user_balance.getUserBalanceInfoByUserID`** — AloBot's
+  own codebase confirms this handler fails on the real server ("Handler
+  --user_balance-- not found", confirmed live twice; it's dead code in
+  AloBot, never called, kept only because `scripts/ibsng_probe.py` was
+  built to test exactly this and found it broken). Since Homeland shares
+  that IBSng server, the same failure is expected. The implementation
+  task for this method must first probe the real server (same
+  probe-script pattern) for a working alternative — other `user_balance.*`
+  methods, fields already present on `user.getUserInfo`'s `attrs`
+  (e.g. a credit/traffic field alongside `nearest_exp_date`), or an
+  `accounting.*` handler — and implement against whichever actually
+  works, documenting the confirmed shape in `ibsng/client.py`'s
+  docstring exactly like every other quirk already recorded there.
 - `create_user` assigns IBSng credit equal to the plan's `data_cap_mb`
   at purchase/renewal time, instead of AloBot's hardcoded
   `DEFAULT_CREATE_CREDIT = 10`.
@@ -295,8 +305,16 @@ subtree/submodule.
 
 ## 14. Open risks to verify during implementation
 
+- **No confirmed working IBSng call for usage data.**
+  `user_balance.getUserBalanceInfoByUserID` — the obvious candidate —
+  is confirmed dead on this server (see §5). The quota-reading task
+  must probe the real server for a working alternative before the
+  feature can be considered done; until then `get_user_data_usage`
+  should be built against a fake/mocked handler (mirroring
+  `tests/fakes/fake_ibsng_server.py`'s pattern) so the rest of the
+  My Services / reminders work isn't blocked on IBSng access.
 - **IBSng credit unit for volume accounting** — unconfirmed until tested
-  against the real server with real volume-accounted groups (§5).
+  against the real server with real volume-accounted groups.
 - **IBSng group setup** — the 4 Homeland groups don't exist yet; buy/
   renew flows can't be end-to-end tested against real IBSng until they
   do. Development can proceed with the groups mocked/stubbed until then.
