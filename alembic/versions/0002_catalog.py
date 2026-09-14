@@ -8,21 +8,12 @@ Create Date: 2026-09-14
 from alembic import op
 import sqlalchemy as sa
 
+from app.db.seed_data import SEED_GROUP_NAMES, SEED_PLANS
+
 revision = "0002"
 down_revision = "0001"
 branch_labels = None
 depends_on = None
-
-# These group names are placeholders until the real IBSng groups exist
-# (spec §5, §14 - deployment prerequisite). Whoever creates the real
-# groups in IBSng must either name them exactly this, or an admin must
-# re-run sync_groups and repoint each Plan.group_name afterwards.
-_PLANS = [
-    ("2 Weeks", 14, 2048, "2.50", "HL-2W", 0),
-    ("1 Month", 30, 5120, "5.00", "HL-1M", 1),
-    ("2 Months", 60, 10240, "10.00", "HL-2M", 2),
-    ("3 Months", 90, 102400, "30.00", "HL-3M", 3),
-]
 
 
 def upgrade() -> None:
@@ -41,7 +32,7 @@ def upgrade() -> None:
         sa.Column("duration_days", sa.Integer(), nullable=False),
         sa.Column("data_cap_mb", sa.Integer(), nullable=False),
         sa.Column("price_usd", sa.Numeric(6, 2), nullable=False),
-        sa.Column("group_name", sa.String(64), nullable=False),
+        sa.Column("group_name", sa.String(64), sa.ForeignKey("groups.name"), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -59,7 +50,7 @@ def upgrade() -> None:
         sa.column("group_name", sa.String),
         sa.column("sort_order", sa.Integer),
     )
-    op.bulk_insert(groups_table, [{"name": group_name} for *_rest, group_name, _ in _PLANS])
+    op.bulk_insert(groups_table, [{"name": group_name} for group_name in SEED_GROUP_NAMES])
     op.bulk_insert(
         plans_table,
         [
@@ -71,7 +62,7 @@ def upgrade() -> None:
                 "group_name": group_name,
                 "sort_order": sort_order,
             }
-            for name, duration_days, data_cap_mb, price_usd, group_name, sort_order in _PLANS
+            for name, duration_days, data_cap_mb, price_usd, group_name, sort_order in SEED_PLANS
         ],
     )
 

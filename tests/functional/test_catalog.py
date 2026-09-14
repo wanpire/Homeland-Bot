@@ -43,10 +43,10 @@ async def test_update_plan_price_and_group() -> None:
 
     async with async_session_maker() as session:
         plans = await list_plans(session)
-        updated = await update_plan(session, plans[0].id, price_usd=Decimal("2.99"), group_name="HL-2W-v2")
+        updated = await update_plan(session, plans[0].id, price_usd=Decimal("2.99"), group_name="HL-1M")
 
     assert updated.price_usd == Decimal("2.99")
-    assert updated.group_name == "HL-2W-v2"
+    assert updated.group_name == "HL-1M"
 
     async with async_session_maker() as session:
         fetched = await get_plan(session, plans[0].id)

@@ -89,27 +89,24 @@ async def _clean_database() -> AsyncGenerator[None, None]:
         if table_names:
             await conn.execute(text(f"TRUNCATE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
 
-    # Re-seed the catalog data
-    async with engine.begin() as conn:
-        groups_data = [
-            {"name": "HL-2W"},
-            {"name": "HL-1M"},
-            {"name": "HL-2M"},
-            {"name": "HL-3M"},
-        ]
-        for group_data in groups_data:
-            await conn.execute(text("INSERT INTO groups (name) VALUES (:name)"), group_data)
+    # Re-seed the catalog data using the same constants as the migration
+    from app.db.seed_data import SEED_GROUP_NAMES, SEED_PLANS
 
-        plans_data = [
-            {"name": "2 Weeks", "duration_days": 14, "data_cap_mb": 2048, "price_usd": "2.50", "group_name": "HL-2W", "sort_order": 0},
-            {"name": "1 Month", "duration_days": 30, "data_cap_mb": 5120, "price_usd": "5.00", "group_name": "HL-1M", "sort_order": 1},
-            {"name": "2 Months", "duration_days": 60, "data_cap_mb": 10240, "price_usd": "10.00", "group_name": "HL-2M", "sort_order": 2},
-            {"name": "3 Months", "duration_days": 90, "data_cap_mb": 102400, "price_usd": "30.00", "group_name": "HL-3M", "sort_order": 3},
-        ]
-        for plan_data in plans_data:
+    async with engine.begin() as conn:
+        for group_name in SEED_GROUP_NAMES:
+            await conn.execute(text("INSERT INTO groups (name) VALUES (:name)"), {"name": group_name})
+
+        for name, duration_days, data_cap_mb, price_usd_str, group_name, sort_order in SEED_PLANS:
             await conn.execute(
                 text("INSERT INTO plans (name, duration_days, data_cap_mb, price_usd, group_name, sort_order) VALUES (:name, :duration_days, :data_cap_mb, :price_usd, :group_name, :sort_order)"),
-                plan_data
+                {
+                    "name": name,
+                    "duration_days": duration_days,
+                    "data_cap_mb": data_cap_mb,
+                    "price_usd": price_usd_str,
+                    "group_name": group_name,
+                    "sort_order": sort_order,
+                }
             )
 
     yield
