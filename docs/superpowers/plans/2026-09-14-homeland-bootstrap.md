@@ -1003,7 +1003,7 @@ def downgrade() -> None:
     op.drop_table("bot_users")
 ```
 
-- [ ] **Step 2: Verify the migration applies cleanly against the test DB**
+- [ ] **Step 4: Verify the migration applies cleanly against the test DB**
 
 Run:
 ```bash
@@ -1019,7 +1019,7 @@ docker compose -f docker-compose.test.yml -p homeland_bot_test exec db_test \
 ```
 Expected: `alembic upgrade head` exits 0; `\dt` lists `bot_users`, `admin_users`, `app_config`, and `alembic_version`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add app/db app/redis.py alembic.ini alembic/
