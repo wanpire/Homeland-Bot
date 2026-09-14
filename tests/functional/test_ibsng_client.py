@@ -4,17 +4,18 @@ import pytest
 
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngUserExistsError, IBSngUserNotFoundError
+from tests.fakes.fake_ibsng_server import FakeIBSngServer
 
 
 @pytest.mark.asyncio
-async def test_list_groups_returns_seeded_groups(ibsng_server):
+async def test_list_groups_returns_seeded_groups(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         groups = await client.list_groups()
     assert groups == ["HL-2W", "HL-1M", "HL-2M", "HL-3M"]
 
 
 @pytest.mark.asyncio
-async def test_create_user_then_get_info(ibsng_server):
+async def test_create_user_then_get_info(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         await client.create_user(username="alice_vpn", password="pw123", group_name="HL-1M", credit=5120)
         info = await client.get_user_info(username="alice_vpn")
@@ -23,7 +24,7 @@ async def test_create_user_then_get_info(ibsng_server):
 
 
 @pytest.mark.asyncio
-async def test_create_user_twice_raises(ibsng_server):
+async def test_create_user_twice_raises(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         await client.create_user(username="bob_vpn", password="pw123", group_name="HL-1M", credit=5120)
         with pytest.raises(IBSngUserExistsError):
@@ -31,7 +32,7 @@ async def test_create_user_twice_raises(ibsng_server):
 
 
 @pytest.mark.asyncio
-async def test_get_user_expiry_reads_attrs(ibsng_server):
+async def test_get_user_expiry_reads_attrs(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         await client.create_user(username="carol_vpn", password="pw123", group_name="HL-1M", credit=5120)
     ibsng_server.set_user_attr("carol_vpn", "nearest_exp_date", "2026-10-01 12:00")
@@ -42,7 +43,7 @@ async def test_get_user_expiry_reads_attrs(ibsng_server):
 
 
 @pytest.mark.asyncio
-async def test_change_user_group(ibsng_server):
+async def test_change_user_group(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         await client.create_user(username="dave_vpn", password="pw123", group_name="HL-1M", credit=5120)
         await client.change_user_group(username="dave_vpn", group_name="HL-2M")
@@ -51,7 +52,7 @@ async def test_change_user_group(ibsng_server):
 
 
 @pytest.mark.asyncio
-async def test_change_user_password_and_verify(ibsng_server):
+async def test_change_user_password_and_verify(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         await client.create_user(username="erin_vpn", password="old-pw", group_name="HL-1M", credit=5120)
         await client.change_user_password(username="erin_vpn", new_password="new-pw")
@@ -60,7 +61,7 @@ async def test_change_user_password_and_verify(ibsng_server):
 
 
 @pytest.mark.asyncio
-async def test_lock_and_delete_user(ibsng_server):
+async def test_lock_and_delete_user(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         await client.create_user(username="frank_vpn", password="pw123", group_name="HL-1M", credit=5120)
         await client.lock_user(username="frank_vpn", locked=True)
