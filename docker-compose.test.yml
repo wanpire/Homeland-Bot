@@ -1,0 +1,62 @@
+# docker-compose.test.yml
+# Fully isolated test stack - own Postgres/Redis, own project name, no
+# shared volumes/network with docker-compose.yml. The fake IBSng
+# XML-RPC server and fake Telegram session both run in-process inside
+# the test-runner container (see tests/fakes/), not as separate
+# services - nothing here ever reaches real IBSng or real Telegram.
+#
+# Run with an explicit project name so this never collides with the
+# production stack on the same host:
+#   docker compose -f docker-compose.test.yml -p homeland_bot_test run --rm test-runner <command>
+
+services:
+  db_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: homeland_test
+      POSTGRES_USER: homeland_test
+      POSTGRES_PASSWORD: homeland_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homeland_test -d homeland_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis_test:
+    image: redis:7-alpine
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  test-runner:
+    build: .
+    depends_on:
+      db_test:
+        condition: service_healthy
+      redis_test:
+        condition: service_healthy
+    environment:
+      BOT_TOKEN: "123456:TEST-TOKEN-NEVER-SENT-TO-REAL-TELEGRAM"
+      ADMIN_IDS: "111111111"
+      IBSNG_BASE_URL: "http://127.0.0.1:8765"
+      IBSNG_USERNAME: "test"
+      IBSNG_PASSWORD: "test"
+      IBSNG_ISP_NAME: "test-isp"
+      IBSNG_AUTH_REMOTEADDR: "127.0.0.1"
+      POSTGRES_HOST: db_test
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: homeland_test
+      POSTGRES_USER: homeland_test
+      POSTGRES_PASSWORD: homeland_test
+      REDIS_HOST: redis_test
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      ENVIRONMENT: "test"
+      LOG_LEVEL: "WARNING"
+    command: ["sleep", "infinity"]
