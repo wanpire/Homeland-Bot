@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 import time
 import xmlrpc.client
+from typing import Any, NoReturn
 from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
 
@@ -39,7 +40,7 @@ class FakeIBSngServer:
             self._users = {}
             self._next_id = 1
 
-    def set_user_attr(self, username: str, key: str, value) -> None:
+    def set_user_attr(self, username: str, key: str, value: Any) -> None:
         """Test-only backdoor for seeding attrs no real API call can set
         directly (e.g. nearest_exp_date)."""
         with self._lock:
@@ -86,7 +87,7 @@ class FakeIBSngServer:
     def _group_listGroups(self, payload: dict) -> list[str]:
         return list(self._groups)
 
-    def _user_getUserInfo(self, payload: dict):
+    def _user_getUserInfo(self, payload: dict) -> dict[str, Any]:
         with self._lock:
             if "user_id" in payload:
                 uid = int(payload["user_id"])
@@ -113,7 +114,7 @@ class FakeIBSngServer:
             }
             return [uid]
 
-    def _user_updateUserAttrs(self, payload: dict):
+    def _user_updateUserAttrs(self, payload: dict) -> bool:
         with self._lock:
             uid = int(payload["user_id"])
             user = self._users.get(uid)
@@ -138,7 +139,7 @@ class FakeIBSngServer:
                 user["attrs"].pop(key, None)
             return True
 
-    def _user_delUser(self, payload: dict):
+    def _user_delUser(self, payload: dict) -> bool:
         with self._lock:
             uid = int(payload["user_id"])
             if uid not in self._users:
@@ -146,5 +147,5 @@ class FakeIBSngServer:
             del self._users[uid]
             return True
 
-    def _user_balance_not_found(self, payload: dict):
+    def _user_balance_not_found(self, payload: dict) -> NoReturn:
         raise xmlrpc.client.Fault(1, "Handler --user_balance-- not found")

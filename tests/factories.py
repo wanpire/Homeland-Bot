@@ -8,6 +8,7 @@ import datetime as dt
 import itertools
 
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _update_id_counter = itertools.count(1)
 _message_id_counter = itertools.count(10_000)
@@ -47,7 +48,7 @@ def make_callback_update(
     return Update(update_id=next(_update_id_counter), callback_query=callback)
 
 
-async def seed_bot_user(session, telegram_id: int, *, username: str | None = None) -> None:
+async def seed_bot_user(session: AsyncSession, telegram_id: int, *, username: str | None = None) -> None:
     from app.db.models.bot_user import BotUser
 
     session.add(BotUser(telegram_id=telegram_id, username=username))

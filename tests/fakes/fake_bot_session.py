@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import itertools
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from aiogram.client.session.base import BaseSession
@@ -25,7 +26,9 @@ class FakeBotSession(BaseSession):
     async def close(self) -> None:
         return None
 
-    async def stream_content(self, url, headers=None, timeout=30, chunk_size=65536, raise_for_status=True):
+    async def stream_content(
+        self, url: str, headers: dict[str, str] | None = None, timeout: int = 30, chunk_size: int = 65536, raise_for_status: bool = True
+    ) -> AsyncGenerator[bytes, None]:
         raise NotImplementedError("FakeBotSession.stream_content is not implemented - this app doesn't use it")
         yield b""  # pragma: no cover
 
@@ -37,7 +40,7 @@ class FakeBotSession(BaseSession):
             **extra,
         )
 
-    async def make_request(self, bot, method, timeout: int | None = None):
+    async def make_request(self, bot: Any, method: Any, timeout: int | None = None) -> Any:
         api_name = method.__api_method__
         data = method.model_dump(exclude_none=True)
         self.calls.append((api_name, data))

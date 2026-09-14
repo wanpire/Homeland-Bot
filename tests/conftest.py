@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import AsyncGenerator, Generator
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -44,7 +46,7 @@ from tests.factories import FAKE_ADMIN_ID  # noqa: E402,F401
 
 
 @pytest.fixture(scope="session")
-def ibsng_server():
+def ibsng_server() -> Generator[FakeIBSngServer, None, None]:
     server = FakeIBSngServer(port=8765)
     server.start()
     yield server
@@ -52,7 +54,7 @@ def ibsng_server():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _migrate_test_database(ibsng_server):
+def _migrate_test_database(ibsng_server: FakeIBSngServer) -> Generator[None, None, None]:
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -65,7 +67,7 @@ def _migrate_test_database(ibsng_server):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _clean_database():
+async def _clean_database() -> AsyncGenerator[None, None]:
     from app.db.base import Base
     from app.db.session import engine
     from sqlalchemy import text
@@ -78,7 +80,7 @@ async def _clean_database():
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _reset_redis():
+async def _reset_redis() -> AsyncGenerator[None, None]:
     from app.redis import get_redis
 
     client = get_redis()
@@ -88,7 +90,7 @@ async def _reset_redis():
 
 
 @pytest.fixture(autouse=True)
-def _reset_ibsng(ibsng_server):
+def _reset_ibsng(ibsng_server: FakeIBSngServer) -> Generator[None, None, None]:
     ibsng_server.reset()
     yield
 
@@ -99,7 +101,7 @@ def fake_session() -> FakeBotSession:
 
 
 @pytest.fixture
-def bot(fake_session):
+def bot(fake_session: FakeBotSession) -> Any:  # aiogram.Bot type is complex; we use Any for clarity
     from aiogram import Bot
     from aiogram.client.default import DefaultBotProperties
     from aiogram.enums import ParseMode
@@ -112,7 +114,7 @@ def bot(fake_session):
 
 
 @pytest_asyncio.fixture(scope="session")
-async def dispatcher():
+async def dispatcher() -> Any:  # aiogram.Dispatcher type is complex; we use Any for clarity
     """The real Dispatcher, wired like app.main.main() does - built out
     incrementally as later tasks add routers/middlewares (Task 8 adds
     the first ones). Session-scoped: aiogram Router objects are
