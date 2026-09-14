@@ -34,7 +34,10 @@ async def test_start_shows_admin_button_for_admin(dispatcher: Any, bot: Any, fak
 
 @pytest.mark.asyncio
 async def test_placeholder_callbacks_answer_coming_soon(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    for callback_data in ("menu:buy", "menu:renew", "menu:myservices", "menu:tutorials"):
+    # "adm:root" is included on purpose: the admin-panel button is drawn
+    # for admins but has no real handler yet, and without a placeholder
+    # entry Telegram shows an indefinite spinner.
+    for callback_data in ("menu:buy", "menu:renew", "menu:myservices", "menu:tutorials", "adm:root"):
         fake_session.reset()
         update = make_callback_update(999, callback_data)
         await dispatcher.feed_update(bot, update)

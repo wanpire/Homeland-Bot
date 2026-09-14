@@ -22,8 +22,18 @@ class PrivateChatOnlyMiddleware(BaseMiddleware):
         if inner is None:
             return await handler(event, data)
 
-        chat = inner.message.chat if isinstance(inner, CallbackQuery) else inner.chat
-        if chat is None or chat.type != ChatType.PRIVATE:
+        if isinstance(inner, CallbackQuery):
+            # aiogram types CallbackQuery.message as Message |
+            # InaccessibleMessage | None. When it is None there is no chat
+            # to gate on at all, so drop the update like any other
+            # un-gatable case rather than AttributeError-ing on .chat.
+            if inner.message is None:
+                return None
+            chat = inner.message.chat
+        else:
+            chat = inner.chat
+
+        if chat.type != ChatType.PRIVATE:
             return None
 
         return await handler(event, data)

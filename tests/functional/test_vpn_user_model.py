@@ -46,3 +46,23 @@ async def test_ibsng_username_must_be_unique() -> None:
         session.add(VPNUser(telegram_id=2, ibsng_username="dup_vpn", ibsng_group="HL-1M", data_cap_mb=5120))
         with pytest.raises(IntegrityError):
             await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_plan_id_foreign_key_is_enforced() -> None:
+    """vpn_users.plan_id -> plans.id must actually reject a plan that
+    doesn't exist, not just document the intent in the model."""
+    from app.db.models.vpn_user import VPNUser
+
+    async with async_session_maker() as session:
+        session.add(
+            VPNUser(
+                telegram_id=4,
+                ibsng_username="orphan_vpn",
+                ibsng_group="HL-1M",
+                plan_id=987654,
+                data_cap_mb=5120,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()

@@ -8,12 +8,25 @@ Create Date: 2026-09-14
 from alembic import op
 import sqlalchemy as sa
 
-from app.db.seed_data import SEED_GROUP_NAMES, SEED_PLANS
-
 revision = "0002"
 down_revision = "0001"
 branch_labels = None
 depends_on = None
+
+# A migration is a frozen historical record of what this revision did to
+# the database. These literals are deliberately private to this file and
+# must never be imported from (or replaced by an import of) mutable
+# application code - a later edit to the app's idea of the catalog must
+# not retroactively change what revision 0002 already shipped.
+_SEED_GROUP_NAMES: tuple[str, ...] = ("HL-2W", "HL-1M", "HL-2M", "HL-3M")
+
+# (name, duration_days, data_cap_mb, price_usd, group_name, sort_order)
+_SEED_PLANS: tuple[tuple[str, int, int, str, str, int], ...] = (
+    ("2 Weeks", 14, 2048, "2.50", "HL-2W", 0),
+    ("1 Month", 30, 5120, "5.00", "HL-1M", 1),
+    ("2 Months", 60, 10240, "10.00", "HL-2M", 2),
+    ("3 Months", 90, 102400, "30.00", "HL-3M", 3),
+)
 
 
 def upgrade() -> None:
@@ -50,7 +63,7 @@ def upgrade() -> None:
         sa.column("group_name", sa.String),
         sa.column("sort_order", sa.Integer),
     )
-    op.bulk_insert(groups_table, [{"name": group_name} for group_name in SEED_GROUP_NAMES])
+    op.bulk_insert(groups_table, [{"name": group_name} for group_name in _SEED_GROUP_NAMES])
     op.bulk_insert(
         plans_table,
         [
@@ -62,7 +75,7 @@ def upgrade() -> None:
                 "group_name": group_name,
                 "sort_order": sort_order,
             }
-            for name, duration_days, data_cap_mb, price_usd, group_name, sort_order in SEED_PLANS
+            for name, duration_days, data_cap_mb, price_usd, group_name, sort_order in _SEED_PLANS
         ],
     )
 

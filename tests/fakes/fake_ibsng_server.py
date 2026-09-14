@@ -20,8 +20,8 @@ from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 class _QuietRequestHandler(SimpleXMLRPCRequestHandler):
     rpc_paths = ("/", "/RPC2")
 
-    def log_message(self, format, *args):  # noqa: A002 - matches base signature
-        pass
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - matches base signature
+        """Silences BaseHTTPRequestHandler's per-request stderr logging."""
 
 
 class FakeIBSngServer:

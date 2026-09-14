@@ -129,7 +129,9 @@ class IBSngClient:
         return secrets.compare_digest(str(stored), password)
 
     async def get_user_expiry(self, *, username: str) -> str | None:
-        info = await self.get_user_info(username=username)
+        info = await self._get_user_info_or_none(username=username)
+        if info is None:
+            return None
         _, inner = _split_user_info(info)
         if inner is None:
             return None

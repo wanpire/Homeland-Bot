@@ -13,7 +13,7 @@ router = Router(name="users")
 WELCOME_TEXT = "👋 Welcome to Homeland VPN.\n\nChoose an option below:"
 PLACEHOLDER_TEXT = "🚧 This feature is coming soon."
 
-_PLACEHOLDER_CALLBACKS = {"menu:buy", "menu:renew", "menu:myservices", "menu:tutorials"}
+_PLACEHOLDER_CALLBACKS = {"menu:buy", "menu:renew", "menu:myservices", "menu:tutorials", "adm:root"}
 
 
 async def _is_admin(telegram_id: int) -> bool:

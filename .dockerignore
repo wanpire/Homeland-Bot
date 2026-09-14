@@ -1,0 +1,34 @@
+# Keep secrets, VCS history, local caches and docs out of the image the
+# Dockerfile's `COPY . .` would otherwise bake in wholesale.
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Virtualenvs
+.venv/
+venv/
+
+# Python caches / build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Agent tooling and project documentation
+.superpowers/
+.claude/
+docs/
+
+# OS noise
+.DS_Store

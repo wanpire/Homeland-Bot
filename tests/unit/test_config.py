@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Generator
 
 import pytest
 from pydantic import ValidationError
@@ -13,7 +14,7 @@ def _clear_settings_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     for key in list(os.environ):
         if key.startswith(("BOT_TOKEN", "ADMIN_IDS", "IBSNG_", "POSTGRES_", "REDIS_", "STRIPE_", "CRYPTO_GATEWAY_")):
             monkeypatch.delenv(key, raising=False)

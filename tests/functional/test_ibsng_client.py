@@ -43,6 +43,14 @@ async def test_get_user_expiry_reads_attrs(ibsng_server: FakeIBSngServer) -> Non
 
 
 @pytest.mark.asyncio
+async def test_get_user_expiry_returns_none_for_unknown_user(ibsng_server: FakeIBSngServer) -> None:
+    """Degrades to None like get_user_group/get_user_password rather than
+    raising IBSngError, so a missing IBSng account isn't a crash."""
+    async with IBSngClient() as client:
+        assert await client.get_user_expiry(username="nobody_vpn") is None
+
+
+@pytest.mark.asyncio
 async def test_change_user_group(ibsng_server: FakeIBSngServer) -> None:
     async with IBSngClient() as client:
         await client.create_user(username="dave_vpn", password="pw123", group_name="HL-1M", credit=5120)

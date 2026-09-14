@@ -34,6 +34,27 @@ def make_message_update(telegram_id: int, text: str | None = None, *, username: 
     return Update(update_id=next(_update_id_counter), message=make_message(telegram_id, text, username=username))
 
 
+def make_group_message_update(
+    telegram_id: int,
+    text: str | None = None,
+    *,
+    chat_id: int | None = None,
+    username: str | None = None,
+) -> Update:
+    """A message sent in a group chat rather than a DM - the exact shape
+    PrivateChatOnlyMiddleware exists to drop."""
+    return Update(
+        update_id=next(_update_id_counter),
+        message=Message(
+            message_id=next(_message_id_counter),
+            date=dt.datetime.now(dt.timezone.utc),
+            chat=Chat(id=chat_id if chat_id is not None else -telegram_id, type="group"),
+            from_user=make_user(telegram_id, username=username),
+            text=text,
+        ),
+    )
+
+
 def make_callback_update(
     telegram_id: int, data: str, *, anchor_message: Message | None = None, username: str | None = None
 ) -> Update:

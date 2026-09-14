@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.db.session import async_session_maker
 
@@ -51,6 +52,27 @@ async def test_update_plan_price_and_group() -> None:
     async with async_session_maker() as session:
         fetched = await get_plan(session, plans[0].id)
     assert fetched.price_usd == Decimal("2.99")
+
+
+@pytest.mark.asyncio
+async def test_plan_group_name_foreign_key_is_enforced() -> None:
+    """plans.group_name -> groups.name must actually reject an unknown
+    group, not just document the intent in the model."""
+    from app.db.models.plan import Plan
+
+    async with async_session_maker() as session:
+        session.add(
+            Plan(
+                name="Bogus",
+                duration_days=1,
+                data_cap_mb=1,
+                price_usd=Decimal("1.00"),
+                group_name="HL-NO-SUCH-GROUP",
+                sort_order=99,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
 
 
 def test_format_price_usd() -> None:

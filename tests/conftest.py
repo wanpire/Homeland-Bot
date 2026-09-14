@@ -33,19 +33,44 @@ _REQUIRED_TEST_ENV = {
 for _key, _default in _REQUIRED_TEST_ENV.items():
     os.environ.setdefault(_key, _default)
 
-if os.environ.get("POSTGRES_DB", "homeland") == "homeland" and os.environ.get("ENVIRONMENT") == "test":
+# Positive assertion, deliberately NOT conditioned on ENVIRONMENT: this
+# suite runs `alembic downgrade base` (dropping every table) and TRUNCATEs
+# before every single test. The only safe target is a disposable database
+# whose name ends in "_test". Anything else - including the production
+# default, which is exactly what `docker compose exec bot python -m pytest`
+# would hand us - must abort before a single fixture runs.
+_POSTGRES_DB = os.environ.get("POSTGRES_DB", "")
+if not _POSTGRES_DB.endswith("_test"):
     raise RuntimeError(
-        "Refusing to run tests: POSTGRES_DB looks like the production database name. "
-        "Run tests via docker-compose.test.yml (make test), which points at a disposable "
-        "homeland_test database instead."
+        f"Refusing to run tests: POSTGRES_DB={_POSTGRES_DB!r} is not a disposable test "
+        "database (its name must end in '_test'). This suite drops and truncates every "
+        "table it points at. Run tests via docker-compose.test.yml (make test), which "
+        "points at a disposable homeland_test database instead."
     )
 
 from tests.fakes.fake_bot_session import FakeBotSession  # noqa: E402
 from tests.fakes.fake_ibsng_server import FakeIBSngServer  # noqa: E402
 from tests.factories import FAKE_ADMIN_ID  # noqa: E402,F401
 
-# Import all models so they're registered in Base.metadata
-from app.db.models import AdminUser, AppConfig, BotUser, Group, Plan  # noqa: E402,F401
+# Side-effecting import: registers every model with Base.metadata, so
+# Base.metadata.sorted_tables below knows about all tables. Deliberately
+# not an explicit name list - that drifted (it was missing VPNUser).
+import app.db.models  # noqa: E402,F401
+
+# Columns re-inserted when restoring the catalog seed after a TRUNCATE.
+# Only the column NAMES live here; every value is read back from whatever
+# the migration actually inserted (see the seeded_catalog fixture).
+# Server-generated columns (id, timestamps) are omitted on purpose.
+_GROUP_SEED_COLUMNS = ("name",)
+_PLAN_SEED_COLUMNS = (
+    "name",
+    "duration_days",
+    "data_cap_mb",
+    "price_usd",
+    "group_name",
+    "is_active",
+    "sort_order",
+)
 
 
 @pytest.fixture(scope="session")
@@ -56,58 +81,103 @@ def ibsng_server() -> Generator[FakeIBSngServer, None, None]:
     server.stop()
 
 
+_BENIGN_DOWNGRADE_MARKERS = (
+    "does not exist",  # psycopg/asyncpg UndefinedTable: nothing to downgrade yet
+    "undefinedtable",
+)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _migrate_test_database(ibsng_server: FakeIBSngServer) -> Generator[None, None, None]:
-    # Downgrade to base to ensure clean state
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "downgrade", "base"],
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        capture_output=True,
-        text=True,
-    )
-    # Ignore errors if tables don't exist
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    # Downgrade to base to ensure a clean schema. A completely fresh
+    # database exits 0 here (alembic just sees current == base), so the
+    # only failure we tolerate is "the tables aren't there to drop".
+    downgrade = subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "base"],
+        cwd=project_root,
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"alembic upgrade head failed:\n{result.stdout}\n{result.stderr}")
+    if downgrade.returncode != 0:
+        combined = f"{downgrade.stdout}\n{downgrade.stderr}".lower()
+        if not any(marker in combined for marker in _BENIGN_DOWNGRADE_MARKERS):
+            raise RuntimeError(
+                f"alembic downgrade base failed:\n{downgrade.stdout}\n{downgrade.stderr}"
+            )
+
+    upgrade = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if upgrade.returncode != 0:
+        raise RuntimeError(f"alembic upgrade head failed:\n{upgrade.stdout}\n{upgrade.stderr}")
     yield
 
 
+@pytest_asyncio.fixture(scope="session")
+async def seeded_catalog(_migrate_test_database: None) -> dict[str, list[dict[str, Any]]]:
+    """Reads back - once, right after the migrations have run - whatever
+    rows revision 0002 actually seeded into `groups` and `plans`, and
+    caches them as plain Python data.
+
+    This is deliberately a read-back rather than an import of a shared
+    constant: the migration is a frozen historical record and nothing in
+    the app or the test suite should be able to redefine what it inserted.
+    The cache exists because the migration seeds once per session while
+    _clean_database TRUNCATEs before every test."""
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    async with engine.connect() as conn:
+        group_rows = (
+            await conn.execute(text(f"SELECT {', '.join(_GROUP_SEED_COLUMNS)} FROM groups ORDER BY id"))
+        ).mappings().all()
+        plan_rows = (
+            await conn.execute(text(f"SELECT {', '.join(_PLAN_SEED_COLUMNS)} FROM plans ORDER BY id"))
+        ).mappings().all()
+
+    cached = {
+        "groups": [dict(row) for row in group_rows],
+        "plans": [dict(row) for row in plan_rows],
+    }
+    if not cached["groups"] or not cached["plans"]:
+        raise RuntimeError(
+            "The catalog migration seeded no groups/plans - the per-test re-seed would "
+            "silently leave every catalog test running against an empty catalog."
+        )
+    return cached
+
+
+def _insert_statement(table: str, columns: tuple[str, ...]) -> str:
+    placeholders = ", ".join(f":{column}" for column in columns)
+    return f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
+
+
 @pytest_asyncio.fixture(autouse=True)
-async def _clean_database() -> AsyncGenerator[None, None]:
+async def _clean_database(seeded_catalog: dict[str, list[dict[str, Any]]]) -> AsyncGenerator[None, None]:
+    from sqlalchemy import text
+
     from app.db.base import Base
     from app.db.session import engine
-    from sqlalchemy import text
 
     table_names = [t.name for t in Base.metadata.sorted_tables]
     async with engine.begin() as conn:
         if table_names:
             await conn.execute(text(f"TRUNCATE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
 
-    # Re-seed the catalog data using the same constants as the migration
-    from app.db.seed_data import SEED_GROUP_NAMES, SEED_PLANS
+        # Restore the catalog the migration seeded (TRUNCATE wiped it).
+        group_stmt = text(_insert_statement("groups", _GROUP_SEED_COLUMNS))
+        for row in seeded_catalog["groups"]:
+            await conn.execute(group_stmt, row)
 
-    async with engine.begin() as conn:
-        for group_name in SEED_GROUP_NAMES:
-            await conn.execute(text("INSERT INTO groups (name) VALUES (:name)"), {"name": group_name})
-
-        for name, duration_days, data_cap_mb, price_usd_str, group_name, sort_order in SEED_PLANS:
-            await conn.execute(
-                text("INSERT INTO plans (name, duration_days, data_cap_mb, price_usd, group_name, sort_order) VALUES (:name, :duration_days, :data_cap_mb, :price_usd, :group_name, :sort_order)"),
-                {
-                    "name": name,
-                    "duration_days": duration_days,
-                    "data_cap_mb": data_cap_mb,
-                    "price_usd": price_usd_str,
-                    "group_name": group_name,
-                    "sort_order": sort_order,
-                }
-            )
+        plan_stmt = text(_insert_statement("plans", _PLAN_SEED_COLUMNS))
+        for row in seeded_catalog["plans"]:
+            await conn.execute(plan_stmt, row)
 
     yield
 
@@ -148,24 +218,17 @@ def bot(fake_session: FakeBotSession) -> Any:  # aiogram.Bot type is complex; we
 
 @pytest_asyncio.fixture(scope="session")
 async def dispatcher() -> Any:  # aiogram.Dispatcher type is complex; we use Any for clarity
-    """The real Dispatcher, wired like app.main.main() does - built out
-    incrementally as later plans add routers/middlewares. Session-scoped:
-    aiogram Router objects are module-level singletons and refuse to
-    attach to more than one Dispatcher. Safe to share across the whole
-    session because every test uses a distinct telegram_id."""
-    from aiogram import Dispatcher
+    """The real production Dispatcher - built by app.main.build_dispatcher,
+    the exact same call main() makes, differing only in the storage
+    backend. Never hand-duplicate the wiring here: doing so is how the
+    global error handler shipped registered in main() but absent from
+    every test.
+
+    Session-scoped: aiogram Router objects are module-level singletons and
+    refuse to attach to more than one Dispatcher. Safe to share across the
+    whole session because every test uses a distinct telegram_id."""
     from aiogram.fsm.storage.memory import MemoryStorage
 
-    from app.bot.handlers import fallback, users
-    from app.bot.middlewares.blocked_user import BlockedUserMiddleware
-    from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
-    from app.bot.middlewares.user_tracking import UserTrackingMiddleware
+    from app.main import build_dispatcher
 
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.update.outer_middleware(PrivateChatOnlyMiddleware())
-    dp.update.outer_middleware(UserTrackingMiddleware())
-    dp.update.outer_middleware(BlockedUserMiddleware())
-
-    dp.include_router(users.router)
-    dp.include_router(fallback.router)
-    return dp
+    return build_dispatcher(MemoryStorage())
