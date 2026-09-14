@@ -149,13 +149,23 @@ def bot(fake_session: FakeBotSession) -> Any:  # aiogram.Bot type is complex; we
 @pytest_asyncio.fixture(scope="session")
 async def dispatcher() -> Any:  # aiogram.Dispatcher type is complex; we use Any for clarity
     """The real Dispatcher, wired like app.main.main() does - built out
-    incrementally as later tasks add routers/middlewares (Task 8 adds
-    the first ones). Session-scoped: aiogram Router objects are
-    module-level singletons and refuse to attach to more than one
-    Dispatcher. Safe to share across the whole session because every
-    test uses a distinct telegram_id."""
+    incrementally as later plans add routers/middlewares. Session-scoped:
+    aiogram Router objects are module-level singletons and refuse to
+    attach to more than one Dispatcher. Safe to share across the whole
+    session because every test uses a distinct telegram_id."""
     from aiogram import Dispatcher
     from aiogram.fsm.storage.memory import MemoryStorage
 
+    from app.bot.handlers import fallback, users
+    from app.bot.middlewares.blocked_user import BlockedUserMiddleware
+    from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
+    from app.bot.middlewares.user_tracking import UserTrackingMiddleware
+
     dp = Dispatcher(storage=MemoryStorage())
+    dp.update.outer_middleware(PrivateChatOnlyMiddleware())
+    dp.update.outer_middleware(UserTrackingMiddleware())
+    dp.update.outer_middleware(BlockedUserMiddleware())
+
+    dp.include_router(users.router)
+    dp.include_router(fallback.router)
     return dp
