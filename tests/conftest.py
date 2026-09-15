@@ -70,6 +70,12 @@ _SERVER_MANAGED_COLUMNS = {"id", "created_at", "updated_at", "synced_at"}
 _GROUP_SEED_COLUMNS = tuple(c.name for c in Group.__table__.columns if c.name not in _SERVER_MANAGED_COLUMNS)
 _PLAN_SEED_COLUMNS = tuple(c.name for c in Plan.__table__.columns if c.name not in _SERVER_MANAGED_COLUMNS)
 
+from app.db.models.tutorial_platform import TutorialPlatform  # noqa: E402
+from app.db.models.tutorial_protocol import TutorialProtocol  # noqa: E402
+
+_PLATFORM_SEED_COLUMNS = tuple(c.name for c in TutorialPlatform.__table__.columns if c.name not in _SERVER_MANAGED_COLUMNS)
+_PROTOCOL_SEED_COLUMNS = tuple(c.name for c in TutorialProtocol.__table__.columns if c.name not in _SERVER_MANAGED_COLUMNS)
+
 
 @pytest.fixture(scope="session")
 def ibsng_server() -> Generator[FakeIBSngServer, None, None]:
@@ -138,14 +144,22 @@ async def seeded_catalog(_migrate_test_database: None) -> dict[str, list[dict[st
         plan_rows = (
             await conn.execute(text(f"SELECT {', '.join(_PLAN_SEED_COLUMNS)} FROM plans ORDER BY id"))
         ).mappings().all()
+        platform_rows = (
+            await conn.execute(text(f"SELECT {', '.join(_PLATFORM_SEED_COLUMNS)} FROM tutorial_platforms ORDER BY id"))
+        ).mappings().all()
+        protocol_rows = (
+            await conn.execute(text(f"SELECT {', '.join(_PROTOCOL_SEED_COLUMNS)} FROM tutorial_protocols ORDER BY id"))
+        ).mappings().all()
 
     cached = {
         "groups": [dict(row) for row in group_rows],
         "plans": [dict(row) for row in plan_rows],
+        "platforms": [dict(row) for row in platform_rows],
+        "protocols": [dict(row) for row in protocol_rows],
     }
-    if not cached["groups"] or not cached["plans"]:
+    if not cached["groups"] or not cached["plans"] or not cached["platforms"] or not cached["protocols"]:
         raise RuntimeError(
-            "The catalog migration seeded no groups/plans - the per-test re-seed would "
+            "The catalog migration seeded no groups/plans/platforms/protocols - the per-test re-seed would "
             "silently leave every catalog test running against an empty catalog."
         )
     return cached
@@ -176,6 +190,14 @@ async def _clean_database(seeded_catalog: dict[str, list[dict[str, Any]]]) -> As
         plan_stmt = text(_insert_statement("plans", _PLAN_SEED_COLUMNS))
         for row in seeded_catalog["plans"]:
             await conn.execute(plan_stmt, row)
+
+        platform_stmt = text(_insert_statement("tutorial_platforms", _PLATFORM_SEED_COLUMNS))
+        for row in seeded_catalog["platforms"]:
+            await conn.execute(platform_stmt, row)
+
+        protocol_stmt = text(_insert_statement("tutorial_protocols", _PROTOCOL_SEED_COLUMNS))
+        for row in seeded_catalog["protocols"]:
+            await conn.execute(protocol_stmt, row)
 
     yield
 

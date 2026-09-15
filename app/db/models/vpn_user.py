@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -29,6 +29,7 @@ class VPNUser(Base):
     ibsng_group: Mapped[str] = mapped_column(String(64))
     plan_id: Mapped[int | None] = mapped_column(ForeignKey("plans.id"), nullable=True)
     data_cap_mb: Mapped[int] = mapped_column(Integer)
+    is_trial: Mapped[bool] = mapped_column(Boolean, default=False)
     expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expiry_reminder_sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     low_quota_reminder_sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

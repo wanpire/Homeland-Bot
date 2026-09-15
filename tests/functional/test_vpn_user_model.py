@@ -66,3 +66,49 @@ async def test_plan_id_foreign_key_is_enforced() -> None:
         )
         with pytest.raises(IntegrityError):
             await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_is_trial_defaults_false() -> None:
+    from app.db.models.vpn_user import VPNUser
+
+    async with async_session_maker() as session:
+        session.add(VPNUser(telegram_id=501, ibsng_username="trial_default_test", ibsng_group="Trial-Iran", data_cap_mb=1024))
+        await session.commit()
+
+    async with async_session_maker() as session:
+        row = (await session.execute(select(VPNUser).where(VPNUser.ibsng_username == "trial_default_test"))).scalar_one()
+    assert row.is_trial is False
+
+
+@pytest.mark.asyncio
+async def test_only_one_trial_vpn_user_per_telegram_id() -> None:
+    from app.db.models.vpn_user import VPNUser
+
+    async with async_session_maker() as session:
+        session.add(VPNUser(telegram_id=502, ibsng_username="trial_once_a", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
+        await session.commit()
+
+    async with async_session_maker() as session:
+        session.add(VPNUser(telegram_id=502, ibsng_username="trial_once_b", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
+        with pytest.raises(IntegrityError):
+            await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_same_telegram_id_can_have_multiple_non_trial_vpn_users() -> None:
+    """The partial index only restricts is_trial=true rows - a repeat
+    paying customer must still be able to own more than one account."""
+    from app.db.models.vpn_user import VPNUser
+    from sqlalchemy import func
+
+    async with async_session_maker() as session:
+        session.add(VPNUser(telegram_id=503, ibsng_username="repeat_a", ibsng_group="1M-1U-Iran-10G", data_cap_mb=10240, is_trial=False))
+        session.add(VPNUser(telegram_id=503, ibsng_username="repeat_b", ibsng_group="2M-1U-Iran-20G", data_cap_mb=20480, is_trial=False))
+        await session.commit()
+
+    async with async_session_maker() as session:
+        count = (
+            await session.execute(select(func.count()).select_from(VPNUser).where(VPNUser.telegram_id == 503))
+        ).scalar_one()
+    assert count == 2
