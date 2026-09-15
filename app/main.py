@@ -9,7 +9,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
 from app.bot.error_handlers import handle_pool_timeout
-from app.bot.handlers import fallback, users
+from app.bot.handlers import fallback, trial, users
 from app.bot.middlewares.blocked_user import BlockedUserMiddleware
 from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
 from app.bot.middlewares.user_tracking import UserTrackingMiddleware
@@ -36,6 +36,7 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.update.outer_middleware(BlockedUserMiddleware())
 
     dp.include_router(users.router)
+    dp.include_router(trial.router)
     dp.include_router(fallback.router)
     return dp
 

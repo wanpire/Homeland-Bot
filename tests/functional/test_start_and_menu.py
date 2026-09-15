@@ -46,7 +46,6 @@ async def test_placeholder_callbacks_answer_coming_soon(dispatcher: Any, bot: An
     for callback_data in (
         "menu:buy",
         "menu:renew",
-        "menu:trial",
         "menu:myservices",
         "menu:tutorials",
         "adm:root",

@@ -16,7 +16,6 @@ PLACEHOLDER_TEXT = "🚧 This feature is coming soon."
 _PLACEHOLDER_CALLBACKS = {
     "menu:buy",
     "menu:renew",
-    "menu:trial",
     "menu:myservices",
     "menu:tutorials",
     "adm:root",
