@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from aiogram.client.session.base import BaseSession
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import Chat, ChatMemberOwner, Message, User
 
 
@@ -18,6 +19,7 @@ class FakeBotSession(BaseSession):
     def __init__(self) -> None:
         super().__init__()
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.blocked_chat_ids: set[int] = set()
         self._message_id_counter = itertools.count(1)
 
     def reset(self) -> None:
@@ -43,9 +45,13 @@ class FakeBotSession(BaseSession):
     async def make_request(self, bot: Any, method: Any, timeout: int | None = None) -> Any:
         api_name = method.__api_method__
         data = method.model_dump(exclude_none=True)
-        self.calls.append((api_name, data))
 
         chat_id = data.get("chat_id", 0)
+
+        if api_name in ("sendMessage", "sendPhoto", "sendDocument", "sendVideo") and chat_id in self.blocked_chat_ids:
+            raise TelegramForbiddenError(method=method, message="Forbidden: bot was blocked by the user")
+
+        self.calls.append((api_name, data))
 
         if api_name in ("sendMessage", "sendPhoto", "sendDocument", "sendVideo"):
             return self._fake_message(chat_id, text=data.get("text") or data.get("caption") or "")
