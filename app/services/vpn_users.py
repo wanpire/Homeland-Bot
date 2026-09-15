@@ -24,6 +24,15 @@ class VPNUsernameTakenError(Exception):
     caller's point of view."""
 
 
+class TrialAlreadyUsedError(Exception):
+    """Raised when create_vpn_user(is_trial=True) is called for a
+    telegram_id that already has a trial VPNUser row. Checked BEFORE
+    any IBSng call, so a repeat trial attempt never provisions (and
+    orphans) a real account on the shared IBSng instance - unlike
+    VPNUsernameTakenError, which can only be detected after the local
+    insert, this constraint is knowable up front from a plain query."""
+
+
 def _random_password(length: int) -> str:
     while True:
         candidate = "".join(secrets.choice(_CREDENTIAL_CHARS) for _ in range(length))
@@ -53,15 +62,25 @@ async def create_vpn_user(
 ) -> VPNUser:
     """The one account-creation path - trial and (later) paid purchases
     both call this, differentiated only by is_trial/plan_id. Sequence:
-    local uniqueness pre-check (avoids creating an orphan IBSng account
-    for a username we already know is taken) -> IBSng account creation
-    -> local row insert -> IntegrityError as a race-condition backstop
-    (covers a username collision AND, via the partial unique index on
-    is_trial, a duplicate trial claim - both surface as the same
-    VPNUsernameTakenError)."""
+    local uniqueness pre-checks (both of them avoid creating an orphan
+    IBSng account for a request the local DB already knows it must
+    reject: a username we already know is taken, and - for a trial - a
+    telegram_id that already claimed its one lifetime trial) -> IBSng
+    account creation -> local row insert -> IntegrityError as a
+    race-condition backstop (two concurrent requests that both passed
+    the pre-checks; covers a username collision AND, via the partial
+    unique index on is_trial, a duplicate trial claim - both surface as
+    the same VPNUsernameTakenError)."""
     existing = await session.execute(select(VPNUser).where(VPNUser.ibsng_username == username))
     if existing.scalar_one_or_none() is not None:
         raise VPNUsernameTakenError(f"{username!r} already exists locally")
+
+    # Must come BEFORE the IBSng call: the partial unique index would
+    # reject the local insert anyway, but only after a real account had
+    # already been provisioned on the shared production IBSng instance,
+    # leaving it orphaned with no local row pointing at it.
+    if is_trial and await has_used_trial(session, telegram_id):
+        raise TrialAlreadyUsedError(f"telegram_id {telegram_id} already has a trial account")
 
     await client.create_user(username=username, password=password, group_name=group_name, credit=data_cap_mb)
 

@@ -58,6 +58,26 @@ class FakeIBSngServer:
             self._users = {}
             self._next_id = 1
 
+    def created_usernames(self) -> list[str]:
+        """Test-only introspection: every account that actually exists on
+        the fake server right now, in creation order. Lets a test prove
+        that a rejected request never provisioned an account at all,
+        rather than only that the user saw the right message."""
+        with self._lock:
+            return [
+                u["attrs"]["normal_username"]
+                for _uid, u in sorted(self._users.items())
+                if u["attrs"].get("normal_username") is not None
+            ]
+
+    def user_count(self) -> int:
+        """Total accounts on the fake server, INCLUDING any created by
+        user.addNewUsers that never got a username assigned - exactly the
+        shape an orphaned account left behind by a half-finished
+        create_user would take."""
+        with self._lock:
+            return len(self._users)
+
     def set_user_attr(self, username: str, key: str, value: Any) -> None:
         """Test-only backdoor for seeding attrs no real API call can set
         directly (e.g. nearest_exp_date)."""

@@ -66,24 +66,55 @@ async def test_create_vpn_user_rejects_duplicate_local_username(ibsng_server: Fa
 
 @pytest.mark.asyncio
 async def test_create_vpn_user_rejects_second_trial_for_same_telegram_id(ibsng_server: FakeIBSngServer) -> None:
-    """Exercises the DB partial-unique-index backstop from Task 1, via
-    create_vpn_user's IntegrityError catch - a second trial attempt for
-    the same telegram_id must surface as the same VPNUsernameTakenError,
-    not an unhandled IntegrityError."""
-    from app.services.vpn_users import VPNUsernameTakenError, create_vpn_user
+    """A second trial attempt for the same telegram_id must be rejected
+    BEFORE IBSng is touched, as TrialAlreadyUsedError - distinct from
+    VPNUsernameTakenError, since retrying with a fresh username can never
+    help (the blocker is the telegram_id) and each retry would otherwise
+    orphan another real account on the shared IBSng instance.
+
+    The DB's partial unique index remains the backstop for the genuine
+    concurrent race, which this pre-check can't see."""
+    from app.services.vpn_users import TrialAlreadyUsedError, create_vpn_user
 
     async with async_session_maker() as session, IBSngClient() as client:
         await create_vpn_user(
             session, client, telegram_id=604, username="hl.trial01", password="ab12cd",
             group_name="Trial-Iran", data_cap_mb=1024, is_trial=True,
         )
+    assert ibsng_server.created_usernames() == ["hl.trial01"]
 
     async with async_session_maker() as session, IBSngClient() as client:
-        with pytest.raises(VPNUsernameTakenError):
+        with pytest.raises(TrialAlreadyUsedError):
             await create_vpn_user(
                 session, client, telegram_id=604, username="hl.trial02", password="ef34gh",
                 group_name="Trial-Iran", data_cap_mb=1024, is_trial=True,
             )
+
+    # No account was provisioned for the rejected attempt - not even an
+    # unnamed one from a half-finished create_user.
+    assert ibsng_server.created_usernames() == ["hl.trial01"]
+    assert ibsng_server.user_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_create_vpn_user_allows_a_second_non_trial_account(ibsng_server: FakeIBSngServer) -> None:
+    """The trial-once pre-check must be scoped to is_trial=True only -
+    a user is allowed any number of paid accounts (Buy/Renew, later)."""
+    from app.services.vpn_users import create_vpn_user
+
+    async with async_session_maker() as session, IBSngClient() as client:
+        await create_vpn_user(
+            session, client, telegram_id=606, username="hl.paid001", password="ab12cd",
+            group_name="1M-1U-Iran-10G", data_cap_mb=10240, is_trial=True,
+        )
+
+    async with async_session_maker() as session, IBSngClient() as client:
+        second = await create_vpn_user(
+            session, client, telegram_id=606, username="hl.paid002", password="ef34gh",
+            group_name="1M-1U-Iran-10G", data_cap_mb=10240, is_trial=False,
+        )
+    assert second.is_trial is False
+    assert ibsng_server.created_usernames() == ["hl.paid001", "hl.paid002"]
 
 
 @pytest.mark.asyncio

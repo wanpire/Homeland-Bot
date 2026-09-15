@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy import select
@@ -13,13 +15,25 @@ from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
 from app.services.tutorial_delivery import deliver_setup
 from app.services.tutorials import list_platforms, list_protocols
-from app.services.vpn_users import VPNUsernameTakenError, create_vpn_user, generate_vpn_credentials, has_used_trial
+from app.services.vpn_users import (
+    TrialAlreadyUsedError,
+    VPNUsernameTakenError,
+    create_vpn_user,
+    generate_vpn_credentials,
+    has_used_trial,
+)
 
 router = Router(name="trial")
+
+logger = logging.getLogger(__name__)
 
 _ALREADY_USED_TEXT = "🎁 You've already used your free trial."
 _CONFIRM_TEXT = "🎁 <b>Free Trial</b> — 24 hours, 1GB of data.\n\nStart your trial?"
 _CREATE_FAILED_TEXT = "⚠️ Couldn't create your trial right now. Please try again shortly."
+_CREDENTIALS_UNAVAILABLE_TEXT = (
+    "⚠️ Your trial account was created, but we couldn't retrieve your "
+    "credentials right now. Please contact support and they'll send them to you."
+)
 _MAX_CREATE_ATTEMPTS = 3
 
 
@@ -47,16 +61,46 @@ async def _send_trial_credentials(bot: Bot, telegram_id: int) -> None:
     if vpn_user is None:
         return
 
-    async with IBSngClient() as client:
-        password = await client.get_user_password(username=vpn_user.ibsng_username)
+    try:
+        async with IBSngClient() as client:
+            password = await client.get_user_password(username=vpn_user.ibsng_username)
 
-    await bot.send_message(
-        telegram_id,
-        "🎁 <b>Your trial is ready.</b>\n\n"
-        f"Username: <code>{vpn_user.ibsng_username}</code>\n"
-        f"Password: <code>{password}</code>\n\n"
-        "⏱ Valid for 24 hours from first connection.",
-    )
+        if password is None:
+            # get_user_password returns None when IBSng has no such user,
+            # or when its getUserInfo response carries no stored
+            # normal_password - either way there is nothing to show, and
+            # rendering it would print a literal "None" as the password.
+            logger.error(
+                "IBSng returned no password for just-created trial account %r (telegram_id=%s)",
+                vpn_user.ibsng_username,
+                telegram_id,
+            )
+            await bot.send_message(telegram_id, _CREDENTIALS_UNAVAILABLE_TEXT)
+            return
+
+        await bot.send_message(
+            telegram_id,
+            "🎁 <b>Your trial is ready.</b>\n\n"
+            f"Username: <code>{vpn_user.ibsng_username}</code>\n"
+            f"Password: <code>{password}</code>\n\n"
+            "⏱ Valid for 24 hours from first connection.",
+        )
+    except Exception:
+        # The account exists but we couldn't hand over its credentials.
+        # Failing silently here would leave the user with a delivered
+        # guide, a real trial account, and no way to log in - so tell
+        # them explicitly to contact support (there is no self-service
+        # "show me my credentials again" flow yet; that belongs to the
+        # My Services plan).
+        logger.exception(
+            "Could not deliver trial credentials for %r (telegram_id=%s)",
+            vpn_user.ibsng_username,
+            telegram_id,
+        )
+        try:
+            await bot.send_message(telegram_id, _CREDENTIALS_UNAVAILABLE_TEXT)
+        except Exception:
+            logger.exception("Could not deliver the credentials-unavailable message to telegram_id=%s", telegram_id)
 
 
 @router.callback_query(F.data == "menu:trial")
@@ -77,6 +121,18 @@ async def trial_entry_cb(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "trial:confirm")
 async def trial_confirm_cb(callback: CallbackQuery) -> None:
     telegram_id = callback.from_user.id
+
+    # "trial:confirm" is a bare callback_data string: an old message's
+    # button still works, so this callback can arrive without ever
+    # passing through trial_entry_cb's eligibility check. Re-check here
+    # rather than trusting the path the user took to get here.
+    async with async_session_maker() as session:
+        if await has_used_trial(session, telegram_id):
+            if callback.message is not None:
+                await callback.message.edit_text(_ALREADY_USED_TEXT, reply_markup=back_to_menu_keyboard())
+            await callback.answer()
+            return
+
     async with async_session_maker() as session:
         trial_plans = await list_plans(session, category="trial")
     trial_plan = trial_plans[0]
@@ -94,6 +150,13 @@ async def trial_confirm_cb(callback: CallbackQuery) -> None:
                     plan_id=trial_plan.id, is_trial=True,
                 )
                 break
+            except TrialAlreadyUsedError:
+                # Retrying is pointless (and, before the pre-check landed,
+                # actively harmful): the blocker is the telegram_id, not
+                # the generated username, so a fresh username can never
+                # make the next attempt succeed.
+                last_error = "trial_used"
+                break
             except (VPNUsernameTakenError, IBSngUserExistsError):
                 last_error = "taken"
                 continue
@@ -103,7 +166,12 @@ async def trial_confirm_cb(callback: CallbackQuery) -> None:
 
     if vpn_user is None:
         if callback.message is not None:
-            text = _ALREADY_USED_TEXT if last_error == "taken" else _CREATE_FAILED_TEXT
+            # Only "trial_used" actually means the trial is spent. Both
+            # "taken" (every attempt lost a genuine username collision)
+            # and "ibsng" (a real IBSng failure) are transient - telling
+            # an eligible user their trial was "already used" in those
+            # cases would be flatly wrong.
+            text = _ALREADY_USED_TEXT if last_error == "trial_used" else _CREATE_FAILED_TEXT
             await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
         await callback.answer()
         return
