@@ -23,6 +23,13 @@ def _buttons(fake_session: FakeBotSession) -> list[str]:
     return [b["text"] for row in markup["inline_keyboard"] for b in row]
 
 
+def _button_callbacks(fake_session: FakeBotSession) -> dict[str, str]:
+    """Returns a mapping of button text to callback_data from the last editMessageText."""
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    markup = edited[-1][1]["reply_markup"]
+    return {b["text"]: b["callback_data"] for row in markup["inline_keyboard"] for b in row}
+
+
 @pytest.mark.asyncio
 async def test_non_admin_gets_no_admin_root_screen(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     await dispatcher.feed_update(bot, make_callback_update(999, "adm:root"))
@@ -106,3 +113,14 @@ async def test_adm_tutorials_adapter_matches_admintutorials_command(
     adapter_text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
 
     assert adapter_text == command_text
+
+
+@pytest.mark.asyncio
+async def test_adm_tutorials_back_button_targets_admin_root(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:tutorials"))
+
+    callbacks = _button_callbacks(fake_session)
+    assert "⬅️ Back to Admin Panel" in callbacks
+    assert callbacks["⬅️ Back to Admin Panel"] == "adm:root"
