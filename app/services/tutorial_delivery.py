@@ -11,12 +11,25 @@ from app.services.tutorials import find_matching_profile, get_guide, is_protocol
 
 _MEDIA_SENDERS = {"photo": "send_photo", "document": "send_document", "video": "send_video"}
 
+#: Platform segment of a download-link AppConfig key for a link that
+#: applies to every platform ("Generic (any platform)" in the admin flow).
+GENERIC_PLATFORM_KEY = "any"
+
 _ANDROID_L2TP_MESSAGE = (
     "⚠️ L2TP isn't supported on Android 12 and newer (Google removed the "
     "built-in L2TP/IPsec client). Please use OpenVPN instead, or contact "
     "support for help."
 )
 _GUIDE_NOT_READY_MESSAGE = "📚 This guide is not ready yet — please contact support."
+
+
+def download_link_key(*, protocol_label: str, platform_label: str | None) -> str:
+    """The one place the `download_link:{protocol}:{platform}` AppConfig
+    key format is spelled out - the admin flow writes through it and
+    deliver_setup reads through it, so the two can't drift (they already
+    did once: the admin's generic `:any` key was written but never read)."""
+    platform_key = platform_label.strip().lower() if platform_label is not None else GENERIC_PLATFORM_KEY
+    return f"download_link:{protocol_label.strip().lower()}:{platform_key}"
 
 
 async def _send_media_or_text(bot: Bot, telegram_id: int, *, file_id: str | None, file_type: str | None, text: str | None, fallback_prefix: str) -> None:
@@ -66,9 +79,13 @@ async def deliver_setup(
     else:
         await bot.send_message(telegram_id, _GUIDE_NOT_READY_MESSAGE)
 
-    protocol_key = protocol.label.strip().lower()
+    # The admin flow's "Generic (any platform)" option writes the
+    # :any-suffixed key, so both branches below have to read it or an
+    # admin's generic link is written but never shown to anyone.
+    generic_link = await get_config(session, download_link_key(protocol_label=protocol.label, platform_label=None))
     if platform is not None:
-        link = await get_config(session, f"download_link:{protocol_key}:{platform.label.strip().lower()}")
+        link = await get_config(session, download_link_key(protocol_label=protocol.label, platform_label=platform.label))
+        link = link or generic_link
         if link:
             await bot.send_message(telegram_id, f"📥 App download link:\n{link}")
     else:
@@ -76,9 +93,13 @@ async def deliver_setup(
         # configured platform's link at once so the user can pick their own.
         links = []
         for candidate_platform in await list_platforms(session):
-            candidate_link = await get_config(session, f"download_link:{protocol_key}:{candidate_platform.label.strip().lower()}")
+            candidate_link = await get_config(
+                session, download_link_key(protocol_label=protocol.label, platform_label=candidate_platform.label)
+            )
             if candidate_link:
                 links.append(f"{candidate_platform.label}: {candidate_link}")
+        if generic_link:
+            links.append(f"Any platform: {generic_link}")
         if links:
             await bot.send_message(telegram_id, "📥 Download OpenVPN Connect:\n" + "\n".join(links))
 

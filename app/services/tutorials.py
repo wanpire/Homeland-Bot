@@ -52,8 +52,18 @@ async def find_matching_profile(session: AsyncSession, *, platform_id: int | Non
     """A platform-specific active profile wins over the generic
     (platform_id=NULL) one, if both exist. Ported from AloBot's
     find_matching_profile, minus the category/location dimension
-    Homeland doesn't have."""
-    result = await session.execute(select(OpenVpnProfile).where(OpenVpnProfile.is_active.is_(True)))
+    Homeland doesn't have.
+
+    Newest-first ordering matters: upsert_profile always INSERTs a new
+    row, so re-uploading a corrected file leaves two active rows for the
+    same match. Without an explicit ORDER BY, which one users get is
+    whatever order Postgres happens to return - here the most recent
+    upload always wins, which is what an admin re-uploading expects."""
+    result = await session.execute(
+        select(OpenVpnProfile)
+        .where(OpenVpnProfile.is_active.is_(True))
+        .order_by(OpenVpnProfile.created_at.desc(), OpenVpnProfile.id.desc())
+    )
     candidates = list(result.scalars().all())
     if not candidates:
         return None

@@ -156,3 +156,39 @@ async def test_find_matching_profile_prefers_platform_specific_over_generic() ->
         fallback = await find_matching_profile(session, platform_id=android_id)
     assert fallback is not None
     assert fallback.name == "Generic"
+
+
+@pytest.mark.asyncio
+async def test_find_matching_profile_serves_the_newest_duplicate() -> None:
+    """upsert_profile always INSERTs, so an admin re-uploading a
+    corrected file leaves two active rows for the same match. Without an
+    explicit ORDER BY, which one users got was whatever order Postgres
+    happened to return; newest-upload-wins is what an admin expects."""
+    from sqlalchemy import select
+
+    from app.db.models.tutorial_platform import TutorialPlatform
+    from app.services.tutorials import find_matching_profile, upsert_profile
+
+    async with async_session_maker() as session:
+        ios_id = (await session.execute(select(TutorialPlatform).where(TutorialPlatform.label == "iOS"))).scalar_one().id
+
+    async with async_session_maker() as session:
+        await upsert_profile(session, platform_id=ios_id, name="iOS v1", file_id="ios-v1", file_type="document", text=None)
+    async with async_session_maker() as session:
+        await upsert_profile(session, platform_id=ios_id, name="iOS v2", file_id="ios-v2", file_type="document", text=None)
+
+    async with async_session_maker() as session:
+        matched = await find_matching_profile(session, platform_id=ios_id)
+    assert matched is not None
+    assert matched.name == "iOS v2"
+
+    # Same guarantee on the generic (platform_id=NULL) fallback path.
+    async with async_session_maker() as session:
+        await upsert_profile(session, platform_id=None, name="Generic v1", file_id="gen-v1", file_type="document", text=None)
+    async with async_session_maker() as session:
+        await upsert_profile(session, platform_id=None, name="Generic v2", file_id="gen-v2", file_type="document", text=None)
+
+    async with async_session_maker() as session:
+        generic = await find_matching_profile(session, platform_id=None)
+    assert generic is not None
+    assert generic.name == "Generic v2"

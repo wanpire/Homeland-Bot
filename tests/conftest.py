@@ -218,6 +218,20 @@ def _reset_ibsng(ibsng_server: FakeIBSngServer) -> Generator[None, None, None]:
     yield
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_dispatcher_fsm_storage(dispatcher: Any) -> AsyncGenerator[None, None]:
+    """The `dispatcher` fixture is session-scoped (aiogram Routers refuse
+    to attach to a second Dispatcher), so its MemoryStorage outlives
+    every test. Distinct telegram_ids keep that mostly harmless, but a
+    test that fails partway through an FSM flow - or a future flow with
+    an exit path that never reaches state.clear() - would otherwise leave
+    state behind for whatever runs next. MemoryStorage keeps everything
+    in a plain `.storage` defaultdict keyed by StorageKey; emptying it
+    resets both state and data for every key at once."""
+    yield
+    dispatcher.storage.storage.clear()
+
+
 @pytest.fixture
 def fake_session() -> FakeBotSession:
     return FakeBotSession()
@@ -246,7 +260,10 @@ async def dispatcher() -> Any:  # aiogram.Dispatcher type is complex; we use Any
 
     Session-scoped: aiogram Router objects are module-level singletons and
     refuse to attach to more than one Dispatcher. Safe to share across the
-    whole session because every test uses a distinct telegram_id."""
+    whole session because tests use distinct telegram_ids where it matters
+    AND because _reset_dispatcher_fsm_storage below empties its FSM
+    storage between tests (admin-flow tests all reuse FAKE_ADMIN_ID, so
+    that reset is load-bearing, not just belt-and-braces)."""
     from aiogram.fsm.storage.memory import MemoryStorage
 
     from app.main import build_dispatcher
