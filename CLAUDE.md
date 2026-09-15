@@ -3,7 +3,9 @@
 Homeland - a Telegram bot selling reverse VPN (Iran-based IPs) in USD to
 Iranian customers abroad. Bootstrapped from AloBot (`/Users/peyman/telegram-bot`,
 a sibling project selling the opposite direction of VPN in Toman), trimmed
-to a flat 4-plan catalog with English-only text and Stripe/crypto payments.
+to a flat catalog (Scroll/Stream categories + a trial tier) with
+English-only text and Stripe/crypto payments. Shares one IBSng instance
+with AloBot - see the group-namespace isolation note below, non-negotiable.
 See `docs/superpowers/specs/2026-09-14-homeland-bot-design.md` for the full
 design and `docs/superpowers/plans/` for implementation plans.
 
@@ -18,9 +20,17 @@ Redis (FSM), pydantic-settings, Docker Compose.
   `user_balance.getUserBalanceInfoByUserID` is confirmed dead on this
   server - never use it; see the module docstring and spec §5/§14 for the
   quota-data plan instead.
-- `app/db/models/plan.py` - the 4 fixed sale plans (2 Weeks/1 Month/2
-  Months/3 Months), seeded via migration `0002_catalog.py`. No category/
-  location/user-count matrix like AloBot's `Service` - see spec §4.
+- `app/db/models/plan.py` - the 7 fixed sale plans (Trial + 3 Scroll +
+  3 Stream, see spec §4), seeded via migration `0002_catalog.py` then
+  corrected to the real IBSng groups by `0004_correct_catalog_to_real_groups.py`.
+  A flat `category` field (scroll/stream/trial), no location/user-count
+  matrix like AloBot's `Service`.
+- `app/services/groups.py` - `sync_groups()` is the ONLY code path that
+  populates the local `groups` table from IBSng, and it filters to
+  Homeland's own group-name namespace before upserting anything. This
+  IBSng instance is SHARED with AloBot (a separate bot project with its
+  own groups) - never remove or bypass that filter, and any future code
+  that lists IBSng groups directly must apply the same one. See spec §14.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

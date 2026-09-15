@@ -2,6 +2,10 @@
 
 Date: 2026-09-14
 Status: proposed
+Amended: 2026-09-15 — catalog corrected to the real 7 IBSng groups (was a
+4-plan placeholder), Scroll/Stream categories added, trial flow restored
+as its own future plan, group-namespace isolation and dedicated-server
+deployment requirements added. See §3, §4, §11, §14.
 
 ## 1. Product summary
 
@@ -16,8 +20,12 @@ to a much smaller, English-only, USD product and adds data-quota tracking,
 which AloBot has never needed.
 
 Backend accounting/provisioning is IBSng, the same software AloBot
-integrates with, running on the same server (confirmed: same IBSng
-instance/URL, separate ISP name, credentials, and groups for Homeland).
+integrates with, running on the same shared instance (confirmed: same
+IBSng instance/URL, separate ISP name, credentials, and groups for
+Homeland — see §14 for the group-namespace isolation requirement this
+implies). Homeland runs on its own dedicated server, separate from
+AloBot's host, and reaches the shared IBSng instance over the network
+(see §11).
 
 ## 2. Scope
 
@@ -45,9 +53,11 @@ instance/URL, separate ISP name, credentials, and groups for Homeland).
 
 ### 2.2 Dropped entirely
 
-- Trial/test service flow (`states/trial.py`, `services/*trial*`, the
-  "🎁 سرویس تست" menu button, `set_trial` admin flow) — no free trial
-  anywhere in Homeland.
+- AloBot's own trial mechanics (`states/trial.py`, `services/*trial*`,
+  `set_trial` admin flow, calendar-month eligibility) — **superseded,
+  see §2.3**: Homeland restores a trial button, but as its own
+  from-scratch feature (one-per-user lifetime limit, not AloBot's
+  per-calendar-month rule), built in a future plan, not ported.
 - Resellers (`db/models/reseller.py`, `services/resellers.py`,
   `states/reseller_buy.py`, `states/add_reseller.py`) — not in scope
   yet; may return in a later phase but nothing in this design should
@@ -55,9 +65,12 @@ instance/URL, separate ISP name, credentials, and groups for Homeland).
 - `dns_switcher.py` and `dns_admin.py` — AloBot-specific Cloudflare
   datacenter switching for its own outbound VPN targets; irrelevant to
   Homeland.
-- Service *categories* (normal/prime/fixed/junior), fixed *locations*
-  (`service_location.py`), and the *user_count* dimension — Homeland
-  has exactly 4 flat plans, no matrix.
+- AloBot's 4-way category matrix (normal/prime/fixed/junior), fixed
+  *locations* (`service_location.py`), and the *user_count* dimension.
+  **Partially superseded, see §4**: Homeland does have a category
+  concept (Scroll/Stream, plus trial), but it's a single flat field on
+  `Plan`, not a matrix dimension crossed with location/user_count —
+  there is still no location or user_count axis.
 - Card-to-card manual payment, the "✅ تایید" admin-approval button, and
   the auto-approve background review loop (`services/auto_approve.py`)
   — Homeland's only payment methods are Stripe and crypto, both
@@ -73,9 +86,18 @@ instance/URL, separate ISP name, credentials, and groups for Homeland).
 - Data-quota tracking end to end (IBSng read, `My Services` display,
   low-quota reminder).
 - `PaymentProvider` abstraction with Stripe and crypto implementations
-  (both stubbed, no live keys).
+  (both stubbed, no live keys). A flat 10%-off-for-crypto discount
+  applies to every plan's listed USD price — computed dynamically at
+  checkout by whichever provider is selected (not a stored per-plan
+  field), so it can't drift from the base price. Built when the payment
+  plan is built, not part of the catalog itself.
 - USD price formatting.
 - ToS/Privacy delivery (static route + in-bot section).
+- A from-scratch free trial: one 24-hour, 1GB trial account per
+  Telegram user, lifetime (not AloBot's calendar-month rule), bound to
+  the reserved `Trial-Iran` IBSng group (§4, §14). Own main-menu button
+  ("🎁 Free Trial"), own future plan — not part of this catalog
+  correction, which only adds the button as a placeholder (§3).
 
 ## 3. Main user menu
 
@@ -84,46 +106,69 @@ Replaces AloBot's menu entirely:
 - 🔑 Buy Subscription
 - ♻️ Renew Service
 - 🛍 My Services (shows remaining data quota, not just expiry)
+- 🎁 Free Trial (one per Telegram user, lifetime — see §2.3, §4, §14;
+  button exists from this correction onward, but is a placeholder until
+  the trial plan builds the real flow, same as every other button below
+  until its own plan lands)
 - 📚 Tutorial & Support (includes Terms & Privacy)
 
-No trial button. Every screen reachable from here keeps a Back /
-Back to Menu button, per the standing UX rule.
+Every screen reachable from here keeps a Back / Back to Menu button,
+per the standing UX rule.
 
-## 4. Catalog: flat plans, not a matrix
+## 4. Catalog: flat plans with a category field, not a matrix
 
 AloBot's `Service` model is a 4-dimensional matrix (category × location ×
-duration × user_count) bound to an IBSng `Group`. Homeland has exactly 4
-plans and no other axes, so this collapses to one model:
+duration × user_count) bound to an IBSng `Group`. Homeland is simpler —
+one category field, no location or user_count axis — but does need a
+category, because the real product has two paid tiers users choose
+between (Scroll: lighter/cheaper plans; Stream: heavier/pricier plans),
+plus a third pseudo-category for the free trial:
 
 ```python
 class Plan(Base):
     __tablename__ = "plans"
     id: Mapped[int]
-    name: Mapped[str]              # "2 Weeks", "1 Month", "2 Months", "3 Months"
-    duration_days: Mapped[int]     # 14, 30, 60, 90
-    data_cap_mb: Mapped[int]       # 2048, 5120, 10240, 102400
-    price_usd: Mapped[Decimal]     # 2.50, 5.00, 10.00, 30.00
-    group_name: Mapped[str]        # bound IBSng group (FK-equivalent, string, matches AloBot's pattern)
+    name: Mapped[str]              # "2 Weeks", "1 Month", "2 Months", "3 Months", "Trial"
+    category: Mapped[str]          # "scroll" | "stream" | "trial"
+    duration_days: Mapped[int]     # 1 (trial), 14, 30, 60, 90
+    data_cap_mb: Mapped[int]       # 1024 (trial), 5120, 10240, 20480, 30720, 61440, 102400
+    price_usd: Mapped[Decimal]     # 0 (trial), 3.00 .. 29.00
+    group_name: Mapped[str]        # bound IBSng group - must be in the Iran namespace, see §14
     is_active: Mapped[bool]
     sort_order: Mapped[int]
 ```
 
-Seeded once via an Alembic data migration with the 4 plans below. Admin
-can edit price / active state / group binding, but cannot create new
-dimensional combinations — there is no plan-matrix editor, just a plan
-list.
+Seeded once via an Alembic data migration with the 7 plans below (the
+real IBSng groups on the shared instance, confirmed 2026-09-15 — this
+replaces an earlier 4-plan/4-placeholder-group table from initial
+development, corrected before any real deployment). Admin can edit
+price / active state / group binding, but cannot create new plans
+through the bot — there is no plan editor beyond that, just a plan
+list, same as before.
 
-| Name      | Duration | Data cap | Price  |
-|-----------|----------|----------|--------|
-| 2 Weeks   | 14 days  | 2 GB     | $2.50  |
-| 1 Month   | 30 days  | 5 GB     | $5.00  |
-| 2 Months  | 60 days  | 10 GB    | $10.00 |
-| 3 Months  | 90 days  | 100 GB   | $30.00 |
+| Name      | Category | Duration | Data cap | Price | IBSng group          |
+|-----------|----------|----------|----------|-------|-----------------------|
+| Trial     | trial    | 1 day    | 1 GB     | $0    | `Trial-Iran`           |
+| 2 Weeks   | scroll   | 14 days  | 5 GB     | $3    | `2W-1U-Iran-5G`        |
+| 1 Month   | scroll   | 30 days  | 10 GB    | $5    | `1M-1U-Iran-10G`       |
+| 2 Months  | scroll   | 60 days  | 20 GB    | $9    | `2M-1U-Iran-20G`       |
+| 1 Month   | stream   | 30 days  | 30 GB    | $12   | `1M-1U-Iran-30G`       |
+| 2 Months  | stream   | 60 days  | 60 GB    | $20   | `2M-1U-Iran-60G`       |
+| 3 Months  | stream   | 90 days  | 100 GB   | $29   | `3M-1U-Iran-100G`      |
 
-`app/services/catalog.py` shrinks to `list_plans` / `get_plan` /
-`update_plan` — no category/location/slot-matrix logic, no
-`format_plan_title`/Persian-digit helpers. Price formatting is a plain
-`f"${price:.2f}"` helper.
+Two plans share the name "1 Month" (10GB/scroll vs. 30GB/stream) and
+two share "2 Months" (20GB/scroll vs. 60GB/stream) — they're
+distinguished by category (shown as a separate screen/section in Buy
+Subscription, not by name alone) and by their data cap in the plan's
+own display line. Not a naming collision to fix; category is what
+disambiguates them.
+
+`app/services/catalog.py` gains `list_plans(session, *, category=None,
+active_only=True)` (category filter added; everything else unchanged
+from the original design) plus a `CATEGORIES = ("scroll", "stream",
+"trial")` constant. No location/slot-matrix logic, no
+`format_plan_title`/Persian-digit helpers. Price formatting stays the
+plain `f"${price:.2f}"` helper.
 
 ## 5. Data quota — the new integration surface
 
@@ -286,6 +331,26 @@ uses (confirmed), with Homeland's own `IBSNG_ISP_NAME`, credentials, and
 groups — the existing config pattern (`app/config.py`'s `Settings`)
 already supports this with zero code changes, just a separate `.env`.
 
+**Dedicated server (added 2026-09-15):** Homeland runs on its own
+server, separate from AloBot's host, provisioned specifically to avoid
+resource contention with AloBot — it hosts Homeland's own bot/Postgres/
+Redis containers, but does NOT run its own IBSng; IBSng stays on the
+existing datacenter infrastructure (Active/Passive nodes) and is
+reached over the network. Before deploying to this server, confirm:
+- The reachable `IBSNG_BASE_URL` (host/port) for the shared instance
+  from the new server, and that firewall rules between the two allow
+  the XML-RPC traffic (IBSng's API defaults to `127.0.0.1` unless
+  `IBS_SERVER_IP` is overridden on the IBSng side — confirm which
+  address it's actually listening on).
+- This server's Docker Compose project name/network stay distinct from
+  AloBot's even though they're now on different hosts (already true per
+  the isolation above — no change needed, just re-confirm at deploy
+  time so container/volume names never collide if the two hosts are
+  ever consolidated or put under shared monitoring later).
+- `.env` points at Homeland's own Postgres/Redis on the new server,
+  never AloBot's — already guaranteed by the isolation above, re-state
+  here since it's the thing to double-check during the actual deploy.
+
 ## 12. Repository
 
 Fresh `git init` at `/Users/peyman/Homeland-bot` (this repo) —
@@ -315,6 +380,28 @@ subtree/submodule.
   My Services / reminders work isn't blocked on IBSng access.
 - **IBSng credit unit for volume accounting** — unconfirmed until tested
   against the real server with real volume-accounted groups.
-- **IBSng group setup** — the 4 Homeland groups don't exist yet; buy/
-  renew flows can't be end-to-end tested against real IBSng until they
-  do. Development can proceed with the groups mocked/stubbed until then.
+- **IBSng group existence** — the 7 real group names (§4) are confirmed
+  by name, but not yet confirmed to exist and be correctly configured
+  (volume-based accounting, right credit unit) on the real IBSng server
+  as of this amendment. Buy/Renew/Trial flows can't be end-to-end
+  tested against real IBSng until they do. Development proceeds with
+  the groups mocked/stubbed until confirmed.
+- **Group-namespace isolation (added 2026-09-15).** Homeland shares one
+  IBSng instance with AloBot, a separate, unrelated Telegram bot project
+  with its own groups (Normal/Prime/Junior tiers — e.g. `1M-1U`,
+  `1M-2U`, `1M-1U-Prime`, plain `Trial`, etc.). Homeland must NEVER
+  read, list, assign, sync, or otherwise interact with any AloBot
+  group. Every one of Homeland's own groups matches the pattern
+  `startswith(("2W-", "1M-", "2M-", "3M-", "Trial-")) and "Iran" in
+  name` (confirmed against the 7 names in §4 — none of AloBot's group
+  names match this pattern). `app/services/groups.py`'s `sync_groups`
+  is the ONLY code path that ever populates the local `groups` table
+  from `IBSngClient.list_groups()` (which itself returns every group on
+  the shared instance, Homeland's and AloBot's alike) — it MUST filter
+  to this allowlist before upserting anything, and any future
+  group-listing/selection/admin-panel code that calls
+  `IBSngClient.list_groups()` directly (bypassing the local table) must
+  apply the same filter before presenting options to anyone. `Trial-Iran`
+  matches the allowlist and should sync normally, but no `Plan` should
+  ever bind a NON-trial (paid) plan to it — it's reserved for the trial
+  flow (§2.3) exclusively, never reused or deleted.

@@ -7,9 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.plan import Plan
 
+CATEGORIES = ("scroll", "stream", "trial")
 
-async def list_plans(session: AsyncSession, *, active_only: bool = True) -> list[Plan]:
+
+async def list_plans(
+    session: AsyncSession, *, category: str | None = None, active_only: bool = True
+) -> list[Plan]:
     query = select(Plan).order_by(Plan.sort_order, Plan.id)
+    if category is not None:
+        query = query.where(Plan.category == category)
     if active_only:
         query = query.where(Plan.is_active.is_(True))
     return list((await session.execute(query)).scalars().all())

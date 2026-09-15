@@ -33,7 +33,25 @@ class FakeIBSngServer:
         self._lock = threading.Lock()
         self._users: dict[int, dict] = {}
         self._next_id = 1
-        self._groups = ["HL-2W", "HL-1M", "HL-2M", "HL-3M"]
+        # Mirrors the real shared IBSng instance: Homeland's 7 real groups
+        # (spec §4) PLUS a sample of AloBot's own groups on the same
+        # instance (spec §14) - list_groups() returns all of them
+        # undifferentiated, exactly like the real server, so tests can
+        # prove sync_groups()'s allowlist filter actually excludes the
+        # AloBot ones rather than trusting it by construction.
+        self._groups = [
+            "Trial-Iran",
+            "2W-1U-Iran-5G",
+            "1M-1U-Iran-10G",
+            "2M-1U-Iran-20G",
+            "1M-1U-Iran-30G",
+            "2M-1U-Iran-60G",
+            "3M-1U-Iran-100G",
+            "1M-1U",
+            "1M-2U",
+            "1M-1U-Prime",
+            "Trial",
+        ]
 
     def reset(self) -> None:
         with self._lock:

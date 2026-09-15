@@ -19,7 +19,13 @@ async def test_start_shows_english_main_menu(dispatcher: Any, bot: Any, fake_ses
     assert "Welcome to Homeland" in data["text"]
 
     buttons = [btn["text"] for row in data["reply_markup"]["inline_keyboard"] for btn in row]
-    assert buttons == ["🔑 Buy Subscription", "♻️ Renew Service", "🛍 My Services", "📚 Tutorial & Support"]
+    assert buttons == [
+        "🔑 Buy Subscription",
+        "♻️ Renew Service",
+        "🎁 Free Trial",
+        "🛍 My Services",
+        "📚 Tutorial & Support",
+    ]
 
 
 @pytest.mark.asyncio
@@ -37,7 +43,14 @@ async def test_placeholder_callbacks_answer_coming_soon(dispatcher: Any, bot: An
     # "adm:root" is included on purpose: the admin-panel button is drawn
     # for admins but has no real handler yet, and without a placeholder
     # entry Telegram shows an indefinite spinner.
-    for callback_data in ("menu:buy", "menu:renew", "menu:myservices", "menu:tutorials", "adm:root"):
+    for callback_data in (
+        "menu:buy",
+        "menu:renew",
+        "menu:trial",
+        "menu:myservices",
+        "menu:tutorials",
+        "adm:root",
+    ):
         fake_session.reset()
         update = make_callback_update(999, callback_data)
         await dispatcher.feed_update(bot, update)

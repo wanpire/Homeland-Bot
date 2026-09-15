@@ -47,4 +47,5 @@ def test_fake_ibsng_server_responds(ibsng_server: FakeIBSngServer) -> None:
 
     proxy = xmlrpc.client.ServerProxy(f"http://127.0.0.1:{ibsng_server.port}")
     groups = proxy.group.listGroups({})
-    assert groups == ["HL-2W", "HL-1M", "HL-2M", "HL-3M"]
+    assert "2W-1U-Iran-5G" in groups
+    assert "Trial-Iran" in groups

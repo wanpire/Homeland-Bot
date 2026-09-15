@@ -13,9 +13,10 @@ def main_menu(*, is_admin: bool) -> InlineKeyboardMarkup:
 
     builder.button(text="🔑 Buy Subscription", callback_data="menu:buy", style="success")
     builder.button(text="♻️ Renew Service", callback_data="menu:renew", style="success")
+    builder.button(text="🎁 Free Trial", callback_data="menu:trial", style="success")
     builder.button(text="🛍 My Services", callback_data="menu:myservices", style="primary")
     builder.button(text="📚 Tutorial & Support", callback_data="menu:tutorials", style="primary")
-    sizes += [2, 2]
+    sizes += [2, 2, 1]
 
     if is_admin:
         builder.button(text="🛠 Admin Panel", callback_data="adm:root")

@@ -10,15 +10,17 @@ from app.db.base import Base
 
 
 class Plan(Base):
-    """One of Homeland's 4 flat, fixed sale plans - no category/location/
-    user-count matrix like AloBot's Service (spec §4). Admin can edit
-    price/group_name/is_active but never creates a 5th plan through the
-    bot; new plans are a schema/seed change, not an admin action."""
+    """One of Homeland's flat, fixed sale plans - a single `category`
+    field (scroll/stream/trial), no location/user-count matrix like
+    AloBot's Service (spec §4). Admin can edit price/group_name/
+    is_active but never creates a new plan through the bot; new plans
+    are a schema/seed change, not an admin action."""
 
     __tablename__ = "plans"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(32))
+    category: Mapped[str] = mapped_column(String(16), index=True)
     duration_days: Mapped[int] = mapped_column(Integer)
     data_cap_mb: Mapped[int] = mapped_column(Integer)
     price_usd: Mapped[Decimal] = mapped_column(Numeric(6, 2))

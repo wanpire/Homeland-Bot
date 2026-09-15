@@ -9,9 +9,14 @@ from tests.fakes.fake_ibsng_server import FakeIBSngServer
 
 @pytest.mark.asyncio
 async def test_list_groups_returns_seeded_groups(ibsng_server: FakeIBSngServer) -> None:
+    """IBSngClient.list_groups() is a faithful, unfiltered transport - it
+    returns every group the server has, Homeland's and AloBot's alike.
+    Namespace filtering is sync_groups()'s job (see test_groups.py), not
+    this client's - a shared IBSng instance means list_groups() legitimately
+    sees groups outside Homeland's own namespace."""
     async with IBSngClient() as client:
         groups = await client.list_groups()
-    assert groups == ["HL-2W", "HL-1M", "HL-2M", "HL-3M"]
+    assert groups == ibsng_server._groups  # noqa: SLF001
 
 
 @pytest.mark.asyncio

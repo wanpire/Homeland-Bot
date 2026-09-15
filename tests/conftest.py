@@ -56,21 +56,19 @@ from tests.factories import FAKE_ADMIN_ID  # noqa: E402,F401
 # Base.metadata.sorted_tables below knows about all tables. Deliberately
 # not an explicit name list - that drifted (it was missing VPNUser).
 import app.db.models  # noqa: E402,F401
+from app.db.models.group import Group  # noqa: E402
+from app.db.models.plan import Plan  # noqa: E402
 
 # Columns re-inserted when restoring the catalog seed after a TRUNCATE.
-# Only the column NAMES live here; every value is read back from whatever
-# the migration actually inserted (see the seeded_catalog fixture).
-# Server-generated columns (id, timestamps) are omitted on purpose.
-_GROUP_SEED_COLUMNS = ("name",)
-_PLAN_SEED_COLUMNS = (
-    "name",
-    "duration_days",
-    "data_cap_mb",
-    "price_usd",
-    "group_name",
-    "is_active",
-    "sort_order",
-)
+# Derived from the models themselves, not hand-typed - a hand-typed list
+# here already drifted once (it was missing `category` the first time
+# that column was added), silently dropping it from every re-seeded row
+# and reintroducing the exact NOT NULL failure that fix was meant to
+# prevent. Server-generated columns (id, timestamps) are excluded since
+# their values come from the DB, not from what the migration inserted.
+_SERVER_MANAGED_COLUMNS = {"id", "created_at", "updated_at", "synced_at"}
+_GROUP_SEED_COLUMNS = tuple(c.name for c in Group.__table__.columns if c.name not in _SERVER_MANAGED_COLUMNS)
+_PLAN_SEED_COLUMNS = tuple(c.name for c in Plan.__table__.columns if c.name not in _SERVER_MANAGED_COLUMNS)
 
 
 @pytest.fixture(scope="session")
