@@ -379,13 +379,23 @@ subtree/submodule.
   `tests/fakes/fake_ibsng_server.py`'s pattern) so the rest of the
   My Services / reminders work isn't blocked on IBSng access.
 - **IBSng credit unit for volume accounting** — unconfirmed until tested
-  against the real server with real volume-accounted groups.
-- **IBSng group existence** — the 7 real group names (§4) are confirmed
-  by name, but not yet confirmed to exist and be correctly configured
-  (volume-based accounting, right credit unit) on the real IBSng server
-  as of this amendment. Buy/Renew/Trial flows can't be end-to-end
-  tested against real IBSng until they do. Development proceeds with
-  the groups mocked/stubbed until confirmed.
+  against the real server with real volume-accounted groups (still
+  open; group *existence* was confirmed 2026-09-15, see below, but
+  their accounting-mode configuration was not part of that check).
+- **IBSng group existence — RESOLVED 2026-09-15.** All 7 real Homeland
+  groups (§4) confirmed present on the production IBSng server via a
+  live, read-only `group.listGroups` probe from the deployed bot
+  server (`bot.alonet.co`) against `ibsng.alonet.co`: `2W-1U-Iran-5G`,
+  `1M-1U-Iran-10G`, `2M-1U-Iran-20G`, `1M-1U-Iran-30G`,
+  `2M-1U-Iran-60G`, `3M-1U-Iran-100G`, `Trial-Iran`. The same probe
+  also confirmed the group-namespace isolation filter (below) correctly
+  separates all 7 from all 15 of AloBot's real groups on the same
+  instance, including `-Junior` tier and `Trial-Junior`/`Trial-Prime`
+  groups not previously enumerated anywhere in this spec — the filter
+  is pattern-based, not a hardcoded list, so it held up against real
+  data it was never specifically tuned against. Whether each group is
+  configured for volume-based accounting (the credit-unit risk above)
+  was not checked by this probe and remains open.
 - **Group-namespace isolation (added 2026-09-15).** Homeland shares one
   IBSng instance with AloBot, a separate, unrelated Telegram bot project
   with its own groups (Normal/Prime/Junior tiers — e.g. `1M-1U`,

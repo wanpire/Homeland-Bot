@@ -14,6 +14,12 @@ a main menu that shows all 5 buttons with "coming soon" placeholders.
 Buy/Renew/My Services/Free Trial/Tutorial & Support/Admin Panel are
 implemented in follow-up plans under `docs/superpowers/plans/`.
 
+**Deployed** (2026-09-15) to `bot.alonet.co` as [@Homeservisbot](https://t.me/Homeservisbot)
+— containers healthy, migrations applied, catalog seeded and confirmed
+against the real IBSng groups (spec §14). Payments aren't wired up yet
+(no Stripe/crypto keys), so live purchases aren't possible until the
+payment plan lands.
+
 ## Shared IBSng instance
 
 Homeland and AloBot are two separate Telegram bot products that
