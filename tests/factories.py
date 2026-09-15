@@ -69,6 +69,22 @@ def make_callback_update(
     return Update(update_id=next(_update_id_counter), callback_query=callback)
 
 
+def make_photo_message(telegram_id: int, *, file_id: str, username: str | None = None) -> Message:
+    from aiogram.types import PhotoSize
+
+    return Message(
+        message_id=next(_message_id_counter),
+        date=dt.datetime.now(dt.timezone.utc),
+        chat=Chat(id=telegram_id, type="private"),
+        from_user=make_user(telegram_id, username=username),
+        photo=[PhotoSize(file_id=file_id, file_unique_id=f"{file_id}-unique", width=100, height=100)],
+    )
+
+
+def make_photo_message_update(telegram_id: int, *, file_id: str, username: str | None = None) -> Update:
+    return Update(update_id=next(_update_id_counter), message=make_photo_message(telegram_id, file_id=file_id, username=username))
+
+
 async def seed_bot_user(session: AsyncSession, telegram_id: int, *, username: str | None = None) -> None:
     from app.db.models.bot_user import BotUser
 
