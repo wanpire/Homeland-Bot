@@ -1073,10 +1073,14 @@ async def _send_media_or_text(bot: Bot, telegram_id: int, *, file_id: str | None
 async def deliver_setup(
     bot: Bot, telegram_id: int, session: AsyncSession, *, protocol_id: int, platform_id: int | None,
 ) -> tuple[bool, int | None]:
-    """Shared by the trial flow now, Buy/Renew later. Returns
-    (delivered, guide_message_id) - delivered=False means the caller
-    must NOT send a credentials message (currently only the Android+L2TP
-    compatibility gate triggers this)."""
+    """Shared by the trial flow now, Buy/Renew later. Sends the OpenVPN
+    profile, the tutorial guide, and any configured download link - it
+    does NOT send account credentials, since not every future caller
+    will want the same closing message (and the caller, not this
+    function, is the one that actually has the username/password in
+    scope). Returns (delivered, guide_message_id) - delivered=False
+    means the caller must NOT send its own credentials message either
+    (currently only the Android+L2TP compatibility gate triggers this)."""
     protocol = await session.get(TutorialProtocol, protocol_id)
     platform = await session.get(TutorialPlatform, platform_id) if platform_id is not None else None
 
@@ -1341,11 +1345,13 @@ def trial_platform_keyboard(platforms: list[TutorialPlatform]) -> InlineKeyboard
 # app/bot/handlers/trial.py
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
+from sqlalchemy import select
 
 from app.bot.keyboards.trial import back_to_menu_keyboard, trial_confirm_keyboard, trial_platform_keyboard, trial_protocol_keyboard
 from app.db.models.tutorial_protocol import TutorialProtocol
+from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.services.catalog import list_plans
 from app.services.ibsng.client import IBSngClient
@@ -1360,6 +1366,42 @@ _ALREADY_USED_TEXT = "🎁 You've already used your free trial."
 _CONFIRM_TEXT = "🎁 <b>Free Trial</b> — 24 hours, 1GB of data.\n\nStart your trial?"
 _CREATE_FAILED_TEXT = "⚠️ Couldn't create your trial right now. Please try again shortly."
 _MAX_CREATE_ATTEMPTS = 3
+
+
+async def _send_trial_credentials(bot: Bot, telegram_id: int) -> None:
+    """deliver_setup (Task 3) deliberately does NOT send the account's
+    username/password - it's a generic (platform, protocol) -> content
+    function reused later by Buy/Renew, which won't always want the
+    same trial-specific closing message. The credentials themselves were
+    generated back in trial_confirm_cb, a separate callback invocation
+    with nothing carried forward (no FSM state, by design - see the
+    spec's rationale for not putting a password in callback_data), so
+    they're looked up fresh here: the just-created VPNUser row gives the
+    username, and IBSngClient.get_user_password re-reads the password
+    IBSng already has stored for it (same accessor AloBot's own renew
+    flow uses to re-show an existing password)."""
+    async with async_session_maker() as session:
+        vpn_user = (
+            await session.execute(
+                select(VPNUser)
+                .where(VPNUser.telegram_id == telegram_id, VPNUser.is_trial.is_(True))
+                .order_by(VPNUser.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if vpn_user is None:
+        return
+
+    async with IBSngClient() as client:
+        password = await client.get_user_password(username=vpn_user.ibsng_username)
+
+    await bot.send_message(
+        telegram_id,
+        "🎁 <b>Your trial is ready.</b>\n\n"
+        f"Username: <code>{vpn_user.ibsng_username}</code>\n"
+        f"Password: <code>{password}</code>\n\n"
+        "⏱ Valid for 24 hours from first connection.",
+    )
 
 
 @router.callback_query(F.data == "menu:trial")
@@ -1428,7 +1470,9 @@ async def trial_protocol_cb(callback: CallbackQuery) -> None:
 
     if protocol is not None and protocol.label.strip().lower() == "openvpn":
         async with async_session_maker() as session:
-            await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=protocol_id, platform_id=None)
+            delivered, _ = await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=protocol_id, platform_id=None)
+        if delivered:
+            await _send_trial_credentials(callback.bot, callback.from_user.id)
         await callback.answer()
         return
 
@@ -1450,7 +1494,9 @@ async def trial_platform_cb(callback: CallbackQuery) -> None:
     l2tp = next(p for p in protocols if p.label.strip().lower() == "l2tp")
 
     async with async_session_maker() as session:
-        await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=l2tp.id, platform_id=platform_id)
+        delivered, _ = await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=l2tp.id, platform_id=platform_id)
+    if delivered:
+        await _send_trial_credentials(callback.bot, callback.from_user.id)
     await callback.answer()
 
 

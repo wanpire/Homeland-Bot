@@ -249,7 +249,12 @@ it's one value threaded through 2-3 screens, not a form being filled in.
      - Android picked → Android+L2TP guard (§7) fires, delivery does NOT
        proceed; user sees the compatibility message instead.
      - Any other platform → proceed to delivery (§7).
-4. **Delivery** (§7) ends with the credentials message. Every screen
+4. **Delivery** (§7) runs, then the handler itself sends the final
+   credentials message (username, password, "valid 24h from first
+   connection") once delivery reports success — looked up fresh via the
+   just-created `VPNUser` row + `IBSngClient.get_user_password`, not
+   carried from the confirm step, since this flow deliberately has no
+   FSM state threading a password across callbacks. Every screen
    above has a Back button per the standing UX rule; the protocol/platform
    pickers' Back returns to the previous picker, not all the way to the
    main menu (matches AloBot's back-one-step convention within a flow).
@@ -290,8 +295,13 @@ Sequence (unchanged from AloBot, category/location args dropped):
 6. Send the app download link if one is configured
    (`AppConfig` key `download_link:{protocol_label_lower}:{platform_label_lower}`,
    e.g. `download_link:openvpn:ios`) — skip silently if not set.
-7. Send the final credentials message: username, password, "⏱ Trial
-   valid for 24 hours from first connection." Return `(True, guide_message_id)`.
+7. Return `(True, guide_message_id)`. `deliver_setup` does NOT send the
+   credentials message itself — that's the caller's job (the trial
+   handler, §6), since only the caller has the freshly-generated
+   username/password in scope, and not every future caller (Buy/Renew)
+   will want the same trial-specific closing text. `delivered=False`
+   means the caller must skip its own credentials message too (the
+   Android+L2TP gate is the only case today).
 
 ## 8. Minimal admin content management
 
