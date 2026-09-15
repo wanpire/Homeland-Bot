@@ -8,11 +8,24 @@ anything group-related.
 
 ## Status
 
-This is the bootstrap/foundation slice: repo scaffold, config, DB/Redis,
-the ported IBSng client, the catalog (Scroll/Stream/Trial, 7 plans), and
-a main menu that shows all 5 buttons with "coming soon" placeholders.
-Buy/Renew/My Services/Free Trial/Tutorial & Support/Admin Panel are
-implemented in follow-up plans under `docs/superpowers/plans/`.
+Built so far: the bootstrap/foundation slice (repo scaffold, config,
+DB/Redis, the ported IBSng client, the catalog — Scroll/Stream/Trial,
+7 plans — and the main menu), plus the **Free Trial** flow and the
+tutorial/connection-profile delivery infrastructure behind it.
+
+- 🎁 **Free Trial** — live. One 24-hour, 1GB trial account per Telegram
+  user, lifetime (DB-enforced by a partial unique index), provisioned in
+  the reserved `Trial-Iran` IBSng group. After creation the user picks a
+  protocol (and, for L2TP, a platform) and the bot delivers the OpenVPN
+  profile, the setup guide, the app download link, and their account
+  credentials.
+- 📚 **Tutorial/profile content** — uploaded by admins via the
+  `/admintutorials` command (support level and above): guides, OpenVPN
+  profiles, and per-platform app download links. Stored as Telegram
+  `file_id`s and replayed on delivery.
+- Still placeholder-only: Buy/Renew, My Services, Tutorial & Support,
+  and the full Admin Panel (broadcast/discounts/reports) — each has or
+  will get its own plan under `docs/superpowers/plans/`.
 
 **Deployed** (2026-09-15) to `bot.alonet.co` as [@Homeservisbot](https://t.me/Homeservisbot)
 — containers healthy, migrations applied, catalog seeded and confirmed

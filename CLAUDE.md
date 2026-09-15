@@ -31,6 +31,20 @@ Redis (FSM), pydantic-settings, Docker Compose.
   IBSng instance is SHARED with AloBot (a separate bot project with its
   own groups) - never remove or bypass that filter, and any future code
   that lists IBSng groups directly must apply the same one. See spec §14.
+- `app/services/vpn_users.py` - the ONE account-creation path
+  (`create_vpn_user`), shared by the trial flow and (later) Buy/Renew.
+  Both local uniqueness checks run BEFORE the IBSng call so a request
+  the DB is going to reject never provisions an orphan account on the
+  shared IBSng instance.
+- `app/services/tutorial_delivery.py` - `deliver_setup()` sends the
+  OpenVPN profile + guide + download link for a (protocol, platform)
+  pair. Shared by the trial flow now, Buy/Renew later; it deliberately
+  does NOT send credentials (that's the caller's job).
+- `/admintutorials` (`app/bot/handlers/tutorial_admin.py`) - the admin
+  flow for uploading guides, OpenVPN profiles, and download links.
+  Standalone command, gated by `has_level(..., "support")`, listed in
+  `set_my_commands`; it will become a button on the general `/admin`
+  panel when that sub-project lands.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

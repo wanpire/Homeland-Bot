@@ -310,16 +310,38 @@ permanently empty. Scoped tightly — just enough to make delivery
 functional, not the full admin panel (broadcast/discounts/reports stay
 in their own later sub-project per the parent spec §7):
 
-- `/admin` → "📚 Tutorials & Profiles" (visible to `support`-level admins
-  and above, matching the existing `IsAdmin` filter pattern).
-- **Add/edit a guide**: pick platform (for L2TP) or skip (for OpenVPN) →
-  pick protocol → send a photo/document/video (or type text) → saved as
-  that `(platform_id, protocol_id)`'s `TutorialGuide`, upserting if one
-  already exists.
-- **Add/edit an OpenVPN profile**: pick platform or "generic" (`platform_id=NULL`)
-  → send a file or type config text → saved.
-- **Set a download link**: pick protocol + platform → type a URL →
-  written to the matching `AppConfig` key.
+- **Entry point (as shipped): a standalone `/admintutorials` command**,
+  not an `/admin` → "📚 Tutorials & Profiles" button. This spec was
+  written assuming a general `/admin` root menu; the implementation plan
+  built the standalone command instead, because the general Admin Panel
+  (broadcast/discounts/reports, §9) is its own later sub-project and
+  there is no `/admin` root to hang a button off yet. The command is
+  gated inside the handler by `has_level(..., "support")` — a non-admin
+  who issues it gets no response at all. It is advertised in
+  `bot.set_my_commands()` (app/main.py) so admins can discover it;
+  Telegram's per-scope command lists can't express "only the admins in
+  our database", so it's listed for everyone and gated at the handler,
+  the same trade-off the main menu's admin button already makes. When
+  the real `/admin` panel lands, it should grow a "📚 Tutorials &
+  Profiles" button that jumps into this same flow.
+- **Add/edit a guide**: pick protocol → pick platform (or "Generic (any
+  platform)" for OpenVPN) → send a photo/document/video → saved as that
+  `(platform_id, protocol_id)`'s `TutorialGuide`, upserting if one
+  already exists. A guide is media-only from this flow, so a plain-text
+  message is rejected rather than saved: writing `media_file_id=None`
+  would silently blank out an already-configured guide.
+- **Add/edit an OpenVPN profile**: pick protocol → pick platform or
+  "generic" (`platform_id=NULL`) → send a file or type config text →
+  saved. Text-only is legitimate here (`OpenVpnProfile.text`); a message
+  with neither a file nor text is rejected.
+- **Set a download link**: pick protocol + platform (or "generic") →
+  type a URL → written to the matching `AppConfig` key
+  (`download_link:{protocol}:{platform}`, with `any` as the platform
+  segment for a generic link — `deliver_setup` falls back to that key
+  when no platform-specific link is configured).
+- Every screen in the flow carries a "⬅️ Back" button (the root screen's
+  returns to the main menu; each later screen's steps back one screen),
+  per the standing UX convention in `CLAUDE.md`.
 - Platforms/protocols themselves are seeded once via migration (the 4
   platforms, 2 protocols already known from parent spec §9) — no
   admin CRUD for those yet, matching how `Plan` rows are seed-only today.

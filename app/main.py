@@ -50,7 +50,19 @@ async def main() -> None:
     storage = RedisStorage.from_url(settings.redis_url)
     dp = build_dispatcher(storage)
 
-    await bot.set_my_commands([BotCommand(command="start", description="Start / main menu")])
+    # /admintutorials is listed for everyone rather than scoped to an
+    # admin-only BotCommandScope: the admin list lives in the database
+    # (app/services/admin_users.py), not in config, so there is no
+    # static chat-id list to build a per-chat scope from at startup.
+    # The handler itself is gated by has_level(), so a non-admin seeing
+    # it in autocomplete just gets no response - the same trade-off the
+    # main menu's admin button already makes.
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Start / main menu"),
+            BotCommand(command="admintutorials", description="Admin: upload tutorials/profiles"),
+        ]
+    )
     await bot.delete_webhook(drop_pending_updates=True)
 
     try:
