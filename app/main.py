@@ -7,6 +7,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
+from aiohttp import web
 
 from app.bot.error_handlers import handle_pool_timeout
 from app.bot.handlers import (
@@ -17,6 +18,7 @@ from app.bot.middlewares.blocked_user import BlockedUserMiddleware
 from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
 from app.bot.middlewares.user_tracking import UserTrackingMiddleware
 from app.config import get_settings
+from app.webhook import create_webhook_app
 
 settings = get_settings()
 
@@ -83,10 +85,17 @@ async def main() -> None:
     )
     await bot.delete_webhook(drop_pending_updates=True)
 
+    runner = web.AppRunner(create_webhook_app(bot))
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", settings.webhook_port)
+    await site.start()
+    logger.info("Webhook server listening on :%s", settings.webhook_port)
+
     try:
         logger.info("Starting polling...")
         await dp.start_polling(bot)
     finally:
+        await runner.cleanup()
         await bot.session.close()
 
 

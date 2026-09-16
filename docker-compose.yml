@@ -2,6 +2,8 @@ services:
   bot:
     build: .
     env_file: .env
+    ports:
+      - "${WEBHOOK_PORT:-8090}:${WEBHOOK_PORT:-8090}"
     networks:
       - default
     depends_on:
