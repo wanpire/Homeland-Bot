@@ -68,9 +68,10 @@ async def test_menu_support_shows_configured_contact(dispatcher: Any, bot: Any, 
 
     edited = [call for call in fake_session.calls if call[0] == "editMessageText"]
     assert len(edited) == 1
-    assert "@homeland_support" in edited[0][1]["text"]
-    buttons = [btn["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for btn in row]
-    assert any("back" in b.lower() for b in buttons)
+    all_buttons = [btn for row in edited[0][1]["reply_markup"]["inline_keyboard"] for btn in row]
+    support_button = next(b for b in all_buttons if "support" in b["text"].lower() and "back" not in b["text"].lower())
+    assert support_button["url"] == "https://t.me/homeland_support"
+    assert any("back" in b["text"].lower() for b in all_buttons)
 
 
 @pytest.mark.asyncio
@@ -81,6 +82,9 @@ async def test_menu_support_falls_back_when_not_configured(dispatcher: Any, bot:
     edited = [call for call in fake_session.calls if call[0] == "editMessageText"]
     assert len(edited) == 1
     assert "isn't configured" in edited[0][1]["text"].lower()
+    all_buttons = [btn for row in edited[0][1]["reply_markup"]["inline_keyboard"] for btn in row]
+    assert len(all_buttons) == 1
+    assert "back" in all_buttons[0]["text"].lower()
 
 
 @pytest.mark.asyncio

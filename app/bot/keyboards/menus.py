@@ -25,3 +25,12 @@ def main_menu(*, is_admin: bool) -> InlineKeyboardMarkup:
 
     builder.adjust(*sizes)
     return builder.as_markup()
+
+
+def support_keyboard(url: str | None) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if url:
+        builder.button(text="☎️ Contact Support", url=url)
+    builder.button(text="⬅️ Back to Menu", callback_data="menu:root")
+    builder.adjust(1)
+    return builder.as_markup()
