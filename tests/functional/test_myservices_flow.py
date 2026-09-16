@@ -139,6 +139,46 @@ async def test_myservices_detail_shows_pending_status(
 
 
 @pytest.mark.asyncio
+async def test_myservices_unknown_status_shows_badge_and_detail_message(
+    dispatcher: Any,
+    bot: Any,
+    fake_session: FakeBotSession,
+    seeded_catalog: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_service_status returns ("unknown", None) when
+    client.get_user_expiry raises IBSngError - a path nothing exercised
+    before. This matters more than a typical coverage gap:
+    myservices_list_keyboard indexes _STATUS_BADGE[status] directly, so
+    any status this function can return that isn't a known key would
+    crash the WHOLE list screen, not just one row."""
+    from app.services.ibsng.client import IBSngClient
+    from app.services.ibsng.exceptions import IBSngError
+
+    telegram_id = 716
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    async def _boom(self: Any, *, username: str) -> str | None:
+        raise IBSngError("IBSng is down")
+
+    monkeypatch.setattr(IBSngClient, "get_user_expiry", _boom)
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any(b.startswith("1 Month — ⚠️ Unknown") for b in buttons)
+
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "couldn't check status right now" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_myservices_view_rejects_another_users_service(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:
@@ -247,16 +287,24 @@ async def test_myservices_resend_l2tp_shows_platform_picker_then_delivers(
 async def test_myservices_resend_does_not_resend_credentials(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:
+    """Grepping for the literal word "password" would be too weak in both
+    directions: deliver_setup's guide/profile copy could legitimately
+    mention "password" without leaking anything, and a real credential
+    leak that doesn't happen to use that word would slip past it. Assert
+    the actual username/password values themselves never appear instead."""
     from sqlalchemy import select
 
     from app.db.models.tutorial_protocol import TutorialProtocol
+    from app.services.ibsng.client import IBSngClient
 
     telegram_id = 713
     service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
-    async with async_session_maker() as session:
+    async with async_session_maker() as session, IBSngClient() as client:
         openvpn_id = (
             await session.execute(select(TutorialProtocol).where(TutorialProtocol.label == "OpenVPN"))
         ).scalar_one().id
+        password = await client.get_user_password(username=service.ibsng_username)
+    assert password is not None
 
     fake_session.reset()
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}"))
@@ -265,9 +313,11 @@ async def test_myservices_resend_does_not_resend_credentials(
     )
 
     sent = [c for c in fake_session.calls if c[0] in ("sendMessage", "sendPhoto", "sendDocument", "sendVideo")]
-    assert not any(
-        "password" in c[1].get("text", "").lower() or "password" in c[1].get("caption", "").lower() for c in sent
-    )
+    for _, payload in sent:
+        text = payload.get("text", "")
+        caption = payload.get("caption", "")
+        assert service.ibsng_username not in text and service.ibsng_username not in caption
+        assert password not in text and password not in caption
 
 
 @pytest.mark.asyncio
@@ -281,4 +331,76 @@ async def test_myservices_resend_rejects_another_users_service(
     await dispatcher.feed_update(bot, make_callback_update(intruder_id, f"myservices:resend:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_platform_branch_nonexistent_protocol_degrades_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """myservices:resend:<id>:platform:<protocol_id>:<platform_id> is
+    reachable via an attacker-crafted callback (per the design spec's own
+    threat model). A syntactically valid but nonexistent protocol_id must
+    not reach deliver_setup - it does `protocol = await session.get(...)`
+    then unconditionally accesses `protocol.label`, which would
+    AttributeError on a dangling id. It must degrade to the not-found
+    screen instead, exactly like an unowned/nonexistent service does."""
+    telegram_id = 717
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(
+        bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}:platform:999999:1")
+    )
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_malformed_vpn_user_id_degrades_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """int(parts[2]) (the vpn_user_id) runs BEFORE the ownership check -
+    a non-numeric segment must not raise ValueError past it."""
+    await dispatcher.feed_update(bot, make_callback_update(718, "myservices:resend:not-a-number"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_malformed_protocol_id_degrades_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """int(parts[4]) in the "protocol" branch must not raise ValueError on
+    a non-numeric segment."""
+    telegram_id = 719
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(
+        bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}:protocol:not-a-number")
+    )
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_malformed_platform_ids_degrade_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """int(parts[4])/int(parts[5]) in the "platform" branch must not raise
+    ValueError/IndexError on malformed or missing segments."""
+    telegram_id = 720
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(
+        bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}:platform:not-a-number")
+    )
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
     assert "not found" in edited[0][1]["text"].lower()

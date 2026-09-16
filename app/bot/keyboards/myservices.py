@@ -19,7 +19,7 @@ _STATUS_BADGE = {
 def myservices_empty_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🔑 Buy Subscription", callback_data="menu:buy", style="success")
-    builder.button(text="🎁 Free Trial", callback_data="menu:trial", style="success")
+    builder.button(text="🎁 Free Trial", callback_data="menu:trial", style="primary")
     builder.button(text="⬅️ Back to Menu", callback_data="menu:root")
     builder.adjust(2, 1)
     return builder.as_markup()
@@ -30,7 +30,7 @@ def myservices_list_keyboard(rows: list[tuple[VPNUser, Plan | None, str]]) -> In
     for vpn_user, plan, status in rows:
         name = plan.name if plan is not None else vpn_user.ibsng_group
         builder.button(
-            text=f"{name} — {_STATUS_BADGE[status]}",
+            text=f"{name} — {_STATUS_BADGE.get(status, '⚠️ Unknown')}",
             callback_data=f"myservices:view:{vpn_user.id}",
         )
     builder.button(text="⬅️ Back to Menu", callback_data="menu:root")

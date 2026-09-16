@@ -161,10 +161,11 @@ def parse_ibsng_expiry(raw: str) -> dt.datetime | None:
 
 
 async def get_service_status(client: IBSngClient, username: str) -> tuple[str, dt.datetime | None]:
-    """Never raises - a status check failing must never crash the screen
-    showing it. Returns ("unknown", None) on any IBSng error or
-    unparseable date, ("pending", None) when IBSng has no expiry yet
-    (never connected), else ("active"|"expired", the parsed datetime)."""
+    """Never raises on any IBSng error the client reports - a status check
+    failing must never crash the screen showing it. Returns ("unknown", None)
+    on any IBSng error or unparseable date, ("pending", None) when IBSng has
+    no expiry yet (never connected), else ("active"|"expired", the parsed
+    datetime)."""
     try:
         raw = await client.get_user_expiry(username=username)
     except IBSngError:

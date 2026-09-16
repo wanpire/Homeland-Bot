@@ -12,7 +12,6 @@ from app.bot.keyboards.myservices import (
     myservices_protocol_keyboard,
 )
 from app.bot.keyboards.trial import back_to_menu_keyboard
-from app.db.models.plan import Plan
 from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
@@ -107,16 +106,29 @@ async def myservices_view_cb(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("myservices:resend:"))
 async def myservices_resend_cb(callback: CallbackQuery) -> None:
+    # callback_data is attacker-controlled (see the design spec's threat
+    # model - ownership is checked below precisely because of this), so
+    # every int() parse of a segment here is guarded: a malformed or
+    # missing segment must degrade to the same not-found screen used for
+    # an unowned/nonexistent service, never raise ValueError/IndexError.
     parts = callback.data.split(":")
-    vpn_user_id = int(parts[2])
     telegram_id = callback.from_user.id
+
+    async def _not_found() -> None:
+        if callback.message is not None:
+            await callback.message.edit_text(_NOT_FOUND_TEXT, reply_markup=back_to_menu_keyboard())
+        await callback.answer()
+
+    try:
+        vpn_user_id = int(parts[2])
+    except (IndexError, ValueError):
+        await _not_found()
+        return
 
     async with async_session_maker() as session:
         vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
         if vpn_user is None:
-            if callback.message is not None:
-                await callback.message.edit_text(_NOT_FOUND_TEXT, reply_markup=back_to_menu_keyboard())
-            await callback.answer()
+            await _not_found()
             return
 
         if len(parts) == 3:
@@ -130,7 +142,12 @@ async def myservices_resend_cb(callback: CallbackQuery) -> None:
             return
 
         if parts[3] == "protocol":
-            protocol_id = int(parts[4])
+            try:
+                protocol_id = int(parts[4])
+            except (IndexError, ValueError):
+                await _not_found()
+                return
+
             protocol = await session.get(TutorialProtocol, protocol_id)
             if protocol is not None and protocol.label.strip().lower() == "openvpn":
                 delivered, _ = await deliver_setup(
@@ -152,8 +169,24 @@ async def myservices_resend_cb(callback: CallbackQuery) -> None:
             return
 
         # parts[3] == "platform": myservices:resend:<id>:platform:<protocol_id>:<platform_id>
-        protocol_id = int(parts[4])
-        platform_id = int(parts[5])
+        try:
+            protocol_id = int(parts[4])
+            platform_id = int(parts[5])
+        except (IndexError, ValueError):
+            await _not_found()
+            return
+
+        # deliver_setup does `protocol = await session.get(...)` and then
+        # unconditionally accesses `protocol.label` - a syntactically valid
+        # but nonexistent protocol_id would raise AttributeError there, so
+        # guard the call site here (mirroring the "protocol" branch above,
+        # which already does its own existence check before touching
+        # `.label`) rather than calling into shared infrastructure blind.
+        protocol = await session.get(TutorialProtocol, protocol_id)
+        if protocol is None:
+            await _not_found()
+            return
+
         delivered, _ = await deliver_setup(
             callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=platform_id
         )
