@@ -142,6 +142,19 @@ async def get_owned_vpn_user(session: AsyncSession, vpn_user_id: int, telegram_i
     ).scalar_one_or_none()
 ```
 
+**Known limitation (found in the final whole-branch review, not fixed —
+recorded here rather than spent on now):** `IBSngClient.get_user_expiry`
+returns `None` in two genuinely different situations that `get_service_status`
+cannot currently tell apart — an account that exists but has no expiry yet
+(truly "pending"), and an account IBSng has no record of at all (e.g.
+deleted directly in the IBSng admin panel on the shared instance — nothing
+in this app does that today, but it's an operation someone with panel
+access could take). Both currently render as "⏳ Pending — validity starts
+on first connection," which would be misleading for the second case. Fixing
+this properly needs the client to distinguish "no `nearest_exp_date` attr"
+from "no such user" (it currently collapses both to the same `Fault` →
+`None` path in `_get_user_info_or_none`) — out of scope for this spec.
+
 ## 5. Detail screen
 
 `myservices:view:<vpn_user_id>` calls `get_owned_vpn_user`; `None` (not
@@ -202,8 +215,11 @@ its own docstring: "does NOT send account credentials").
 `get_owned_vpn_user` (same not-found handling as §5), then shows the
 protocol picker (`list_protocols`, same as trial's). `myservices:resend:<vpn_user_id>:protocol:<protocol_id>`:
 OpenVPN → `deliver_setup(bot, telegram_id, session, protocol_id=protocol_id, platform_id=None)`
-directly, then a confirmation message with a Back-to-Service button; any
-other protocol → platform picker
+directly, then a confirmation message reusing the detail screen's own
+keyboard (§5's `myservices_detail_keyboard`) — its "Resend Setup" button
+means the confirmation screen can go straight back into another resend
+attempt for the same service, and "Back to List" is one tap from there;
+any other protocol → platform picker
 (`list_platforms`). `myservices:resend:<vpn_user_id>:platform:<protocol_id>:<platform_id>`
 → `deliver_setup(..., protocol_id=protocol_id, platform_id=platform_id)`,
 same confirmation.
