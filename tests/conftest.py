@@ -137,18 +137,24 @@ async def seeded_catalog(_migrate_test_database: None) -> dict[str, list[dict[st
 
     from app.db.session import engine
 
+    # "id" is prepended to every SELECT (but never to the *_SEED_COLUMNS
+    # tuples themselves, which stay id-free since they also drive the
+    # re-seed INSERT after each TRUNCATE, and RESTART IDENTITY must
+    # assign those ids itself). Tests that need a real Plan/Group id -
+    # to satisfy a foreign key or pass one to a service function - can
+    # read it off the cached dict instead of a live query.
     async with engine.connect() as conn:
         group_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_GROUP_SEED_COLUMNS)} FROM groups ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_GROUP_SEED_COLUMNS)} FROM groups ORDER BY id"))
         ).mappings().all()
         plan_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_PLAN_SEED_COLUMNS)} FROM plans ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_PLAN_SEED_COLUMNS)} FROM plans ORDER BY id"))
         ).mappings().all()
         platform_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_PLATFORM_SEED_COLUMNS)} FROM tutorial_platforms ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_PLATFORM_SEED_COLUMNS)} FROM tutorial_platforms ORDER BY id"))
         ).mappings().all()
         protocol_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_PROTOCOL_SEED_COLUMNS)} FROM tutorial_protocols ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_PROTOCOL_SEED_COLUMNS)} FROM tutorial_protocols ORDER BY id"))
         ).mappings().all()
 
     cached = {

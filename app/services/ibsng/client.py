@@ -176,6 +176,14 @@ class IBSngClient:
             "user.updateUserAttrs", user_id=user_id, attrs={"group_name": group_name}, to_del_attrs=[]
         )
 
+    async def renew_user(self, *, username: str) -> None:
+        """Mirrors IBSng's admin-panel 'reset first login' action: clears
+        the first_login attribute so validity restarts from the account's
+        next connection. Idempotent - deleting an already-unset attribute
+        is a no-op, safe to retry."""
+        user_id = await self._require_user_id(username)
+        await self._call("user.updateUserAttrs", user_id=user_id, attrs={}, to_del_attrs=["first_login"])
+
     async def change_user_password(self, *, username: str, new_password: str) -> None:
         user_id = await self._require_user_id(username)
         await self._call(

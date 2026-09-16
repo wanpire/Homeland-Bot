@@ -132,3 +132,60 @@ async def test_has_used_trial() -> None:
 
     async with async_session_maker() as session:
         assert await has_used_trial(session, 605) is True
+
+
+@pytest.mark.asyncio
+async def test_renew_and_change_group_updates_tracked_vpn_user(seeded_catalog: dict) -> None:
+    from sqlalchemy import select
+
+    from app.db.models.vpn_user import VPNUser
+    from app.db.session import async_session_maker
+    from app.services.ibsng.client import IBSngClient
+    from app.services.vpn_users import create_vpn_user, generate_vpn_credentials, renew_and_change_group
+
+    scroll_plans = [p for p in seeded_catalog["plans"] if p["category"] == "scroll"]
+    old_plan, new_plan = scroll_plans[0], scroll_plans[1]
+    username, password = generate_vpn_credentials()
+
+    async with async_session_maker() as session, IBSngClient() as client:
+        vpn_user = await create_vpn_user(
+            session, client, telegram_id=12345, username=username, password=password,
+            group_name=old_plan["group_name"], data_cap_mb=old_plan["data_cap_mb"], plan_id=old_plan["id"],
+        )
+
+    async with async_session_maker() as session, IBSngClient() as client:
+        await renew_and_change_group(
+            session, client, username=username, new_group_name=new_plan["group_name"],
+            new_plan_id=new_plan["id"], new_data_cap_mb=new_plan["data_cap_mb"],
+        )
+
+    async with async_session_maker() as session:
+        refreshed = (await session.execute(select(VPNUser).where(VPNUser.id == vpn_user.id))).scalar_one()
+    assert refreshed.ibsng_group == new_plan["group_name"]
+    assert refreshed.plan_id == new_plan["id"]
+    assert refreshed.data_cap_mb == new_plan["data_cap_mb"]
+
+
+@pytest.mark.asyncio
+async def test_renew_and_change_group_is_ibsng_only_when_no_local_row(seeded_catalog: dict) -> None:
+    from sqlalchemy import select
+
+    from app.db.models.vpn_user import VPNUser
+    from app.db.session import async_session_maker
+    from app.services.ibsng.client import IBSngClient
+    from app.services.vpn_users import renew_and_change_group
+
+    scroll_plan = next(p for p in seeded_catalog["plans"] if p["category"] == "scroll")
+
+    async with IBSngClient() as client:
+        await client.create_user(username="ibsng-only-user", password="abc123", group_name="Trial-Iran", credit=512)
+
+    async with async_session_maker() as session, IBSngClient() as client:
+        await renew_and_change_group(
+            session, client, username="ibsng-only-user", new_group_name=scroll_plan["group_name"],
+            new_plan_id=scroll_plan["id"], new_data_cap_mb=scroll_plan["data_cap_mb"],
+        )
+
+    async with async_session_maker() as session:
+        rows = (await session.execute(select(VPNUser).where(VPNUser.ibsng_username == "ibsng-only-user"))).scalars().all()
+    assert list(rows) == []

@@ -107,3 +107,30 @@ async def has_used_trial(session: AsyncSession, telegram_id: int) -> bool:
         select(VPNUser.id).where(VPNUser.telegram_id == telegram_id, VPNUser.is_trial.is_(True)).limit(1)
     )
     return result.scalar_one_or_none() is not None
+
+
+async def renew_and_change_group(
+    session: AsyncSession,
+    client: IBSngClient,
+    *,
+    username: str,
+    new_group_name: str,
+    new_plan_id: int | None,
+    new_data_cap_mb: int,
+) -> None:
+    """Renews (resets validity) AND moves to a (possibly different)
+    group/plan in one IBSng-side action. Updates the locally-tracked
+    VPNUser row if this username is tracked (was created through the
+    bot) - otherwise this is IBSng-only, no local row to update."""
+    await client.renew_user(username=username)
+    await client.change_user_group(username=username, group_name=new_group_name)
+    vpn_user = (
+        await session.execute(select(VPNUser).where(VPNUser.ibsng_username == username))
+    ).scalar_one_or_none()
+    if vpn_user is not None:
+        vpn_user.ibsng_group = new_group_name
+        vpn_user.plan_id = new_plan_id
+        vpn_user.data_cap_mb = new_data_cap_mb
+        vpn_user.expiry_reminder_sent_at = None
+        vpn_user.low_quota_reminder_sent_at = None
+        await session.commit()
