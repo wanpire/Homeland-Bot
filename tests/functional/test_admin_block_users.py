@@ -96,3 +96,21 @@ async def test_blocked_list_paginates_at_8_per_page(dispatcher: Any, bot: Any, f
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert sum(1 for b in buttons if b.startswith("✅ Unblock")) == 1
+
+
+@pytest.mark.asyncio
+async def test_block_with_leading_minus_is_rejected(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:users:block"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "--5"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("numeric" in c[1].get("text", "").lower() for c in sent)
+
+
+@pytest.mark.asyncio
+async def test_block_with_unicode_digits_is_rejected(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:users:block"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "²³"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("numeric" in c[1].get("text", "").lower() for c in sent)

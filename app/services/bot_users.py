@@ -24,6 +24,11 @@ async def is_blocked(session: AsyncSession, telegram_id: int) -> bool:
     return row.is_blocked if row is not None else False
 
 
+async def bot_user_exists(session: AsyncSession, telegram_id: int) -> bool:
+    result = await session.execute(select(BotUser.id).where(BotUser.telegram_id == telegram_id).limit(1))
+    return result.scalar_one_or_none() is not None
+
+
 async def list_blocked_users(session: AsyncSession) -> list[BotUser]:
     result = await session.execute(select(BotUser).where(BotUser.is_blocked.is_(True)).order_by(BotUser.id))
     return list(result.scalars().all())

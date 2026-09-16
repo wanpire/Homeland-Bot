@@ -3,14 +3,12 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
-from sqlalchemy import select
 
 from app.bot.keyboards.admin_block import PAGE_SIZE, block_user_prompt_keyboard, blocked_users_keyboard
 from app.bot.states.admin_block import BlockUserStates
-from app.db.models.bot_user import BotUser
 from app.db.session import async_session_maker
 from app.services.admin_users import has_level
-from app.services.bot_users import block_user, list_blocked_users
+from app.services.bot_users import block_user, bot_user_exists, list_blocked_users
 
 router = Router(name="admin_block")
 
@@ -49,10 +47,11 @@ async def admin_blocked_list_cb(callback: CallbackQuery, state: FSMContext) -> N
 
 
 @router.callback_query(F.data.startswith("adm:users:unblock:"))
-async def admin_unblock_cb(callback: CallbackQuery) -> None:
+async def admin_unblock_cb(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _is_admin(callback.from_user.id):
         await callback.answer()
         return
+    await state.clear()
     _, _, _, telegram_id_str, page_str = callback.data.split(":")
     async with async_session_maker() as session:
         await block_user(session, int(telegram_id_str), blocked=False)
@@ -78,14 +77,17 @@ async def admin_block_receive_id(message: Message, state: FSMContext) -> None:
     if message.from_user is None or not await _is_admin(message.from_user.id):
         return
     raw = (message.text or "").strip()
-    if not raw.lstrip("-").isdigit():
+    if not raw.isdigit():
         await message.answer(_NOT_A_NUMBER_TEXT, reply_markup=block_user_prompt_keyboard())
         return
-    telegram_id = int(raw)
+    try:
+        telegram_id = int(raw)
+    except ValueError:
+        await message.answer(_NOT_A_NUMBER_TEXT, reply_markup=block_user_prompt_keyboard())
+        return
 
     async with async_session_maker() as session:
-        row = (await session.execute(select(BotUser).where(BotUser.telegram_id == telegram_id))).scalar_one_or_none()
-        if row is None:
+        if not await bot_user_exists(session, telegram_id):
             await message.answer(_NEVER_SEEN_TEXT, reply_markup=block_user_prompt_keyboard())
             return
         await block_user(session, telegram_id, blocked=True)
