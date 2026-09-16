@@ -49,11 +49,14 @@ async def test_support_admin_sees_root_menu_without_sales_or_full_buttons(
     await dispatcher.feed_update(bot, make_callback_update(601, "adm:root"))
 
     buttons = _buttons(fake_session)
-    assert "📢 Broadcast" in buttons
     assert "👤 Users" in buttons
     assert "📚 Tutorials & Profiles" in buttons
     assert "🏷 Discount Codes" not in buttons
     assert "⚙️ Settings" not in buttons
+    # Broadcast's router is gated IsFullAdmin, so a support admin must not
+    # even see the button (spec §2) - a visible-but-filter-rejected button
+    # gives zero feedback when tapped.
+    assert "📢 Broadcast" not in buttons
 
 
 @pytest.mark.asyncio
@@ -65,6 +68,7 @@ async def test_sales_admin_sees_discounts_but_not_settings(dispatcher: Any, bot:
     buttons = _buttons(fake_session)
     assert "🏷 Discount Codes" in buttons
     assert "⚙️ Settings" not in buttons
+    assert "📢 Broadcast" not in buttons
 
 
 @pytest.mark.asyncio
@@ -72,8 +76,28 @@ async def test_full_admin_sees_every_section(dispatcher: Any, bot: Any, fake_ses
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:root"))
 
     buttons = _buttons(fake_session)
+    assert "📢 Broadcast" in buttons
     assert "🏷 Discount Codes" in buttons
     assert "⚙️ Settings" in buttons
+
+
+@pytest.mark.asyncio
+async def test_unmatched_adm_callback_gets_a_permission_alert_not_silence(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """A sales admin holding a stale keyboard (or any future filter-gated
+    adm:* route) must get explicit feedback rather than an indefinite
+    Telegram spinner - admin_fallback.router is the catch-all that
+    guarantees answerCallbackQuery always fires."""
+    await _seed_admin(605, "sales")
+
+    await dispatcher.feed_update(bot, make_callback_update(605, "adm:broadcast"))
+
+    answered = [c for c in fake_session.calls if c[0] == "answerCallbackQuery"]
+    assert len(answered) == 1
+    assert "permission" in answered[0][1]["text"].lower()
+    assert answered[0][1].get("show_alert") is True
+    assert [c for c in fake_session.calls if c[0] == "editMessageText"] == []
 
 
 @pytest.mark.asyncio
