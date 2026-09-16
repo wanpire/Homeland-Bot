@@ -16,7 +16,7 @@ def _clear_settings_cache() -> None:
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     for key in list(os.environ):
-        if key.startswith(("BOT_TOKEN", "ADMIN_IDS", "IBSNG_", "POSTGRES_", "REDIS_", "STRIPE_", "CRYPTO_GATEWAY_")):
+        if key.startswith(("BOT_TOKEN", "ADMIN_IDS", "IBSNG_", "POSTGRES_", "REDIS_", "STRIPE_", "NOWPAYMENTS_")):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("BOT_TOKEN", "123:TEST")
     monkeypatch.setenv("IBSNG_BASE_URL", "http://ibsng.example:1235")
@@ -63,3 +63,12 @@ def test_settings_database_and_redis_urls() -> None:
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
     )
     assert settings.redis_url == f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
+
+
+def test_settings_nowpayments_fields_default_blank() -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    assert settings.nowpayments_api_key == ""
+    assert settings.nowpayments_ipn_secret == ""
+    assert settings.bot_username == ""

@@ -51,10 +51,25 @@ class Settings(BaseSettings):
     stripe_api_key: str = ""
     stripe_webhook_secret: str = ""
 
-    # Crypto gateway - config placeholders only, no live keys yet.
-    crypto_gateway_api_key: str = ""
-    crypto_gateway_ipn_secret: str = ""
-    crypto_gateway_ipn_callback_url: str = ""
+    # NOWPayments - config placeholders only, no live keys yet.
+    # create_crypto_payment raises PaymentProviderNotConfiguredError while
+    # nowpayments_api_key is blank, so the bot can run today with crypto
+    # payment visibly unavailable until real keys are provisioned.
+    #
+    # Settlement/outcome currency (USDT on TRC-20, primary) is configured
+    # in the NOWPayments dashboard itself (payout wallet address) - not
+    # in code, and not something this app ever needs to know about.
+    nowpayments_api_key: str = ""
+    nowpayments_ipn_secret: str = ""
+    nowpayments_ipn_callback_url: str = ""
+
+    # Used only to build NOWPayments' optional success_url/cancel_url
+    # (a deep link back into the bot after the hosted payment page) -
+    # blank means those params are simply omitted from the invoice
+    # request; NOWPayments shows its own default confirmation page
+    # instead. Real confirmation always happens via the IPN-triggered
+    # Telegram message regardless, so this is cosmetic only.
+    bot_username: str = ""
 
     @property
     def admin_id_list(self) -> list[int]:
