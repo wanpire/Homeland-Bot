@@ -82,6 +82,38 @@ async def test_create_invoice_raises_on_missing_fields(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
+async def test_create_invoice_raises_nowpayments_error_on_network_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_post(self: httpx.AsyncClient, url: str, *, json: dict[str, Any], headers: dict[str, str]):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    with pytest.raises(nowpayments.NowPaymentsError):
+        await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
+
+
+@pytest.mark.asyncio
+async def test_create_invoice_raises_nowpayments_error_on_non_json_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    class _NonJsonResponse:
+        status_code = 200
+        text = "<html>not json</html>"
+        def json(self) -> Any:
+            raise ValueError("not valid JSON")
+
+    async def _fake_post(self: httpx.AsyncClient, url: str, *, json: dict[str, Any], headers: dict[str, str]):
+        return _NonJsonResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    with pytest.raises(nowpayments.NowPaymentsError):
+        await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
+
+
+@pytest.mark.asyncio
 async def test_create_invoice_includes_optional_callback_and_success_urls(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import get_settings
     from app.services.payments import nowpayments

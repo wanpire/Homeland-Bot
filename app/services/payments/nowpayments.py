@@ -54,13 +54,20 @@ async def create_invoice(*, order_id: str, amount: Decimal, description: str) ->
 
     headers = {"x-api-key": settings.nowpayments_api_key, "Content-Type": "application/json"}
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.post(f"{_BASE_URL}/invoice", json=payload, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(f"{_BASE_URL}/invoice", json=payload, headers=headers)
+    except httpx.RequestError as exc:
+        raise NowPaymentsError(f"NOWPayments request failed: {exc}") from exc
 
     if response.status_code >= 400:
         raise NowPaymentsError(f"NOWPayments invoice creation failed: {response.status_code} {response.text}")
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NowPaymentsError(f"NOWPayments response was not valid JSON: {exc}") from exc
+
     invoice_url = data.get("invoice_url")
     payment_id = data.get("id")
     if not invoice_url or not payment_id:

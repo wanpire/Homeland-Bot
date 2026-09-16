@@ -272,7 +272,9 @@ async def renew_confirm_cb(callback: CallbackQuery) -> None:
             await callback.answer()
             return
         except NowPaymentsError:
-            logger.error("NOWPayments invoice creation failed for vpn_user %s plan %s", vpn_user_id, plan_id)
+            logger.error(
+                "NOWPayments invoice creation failed for vpn_user %s plan %s", vpn_user_id, plan_id, exc_info=True,
+            )
             if callback.message is not None:
                 await callback.message.edit_text(_PAYMENT_UNAVAILABLE_TEXT, reply_markup=back_to_menu_keyboard())
             await callback.answer()

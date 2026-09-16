@@ -293,3 +293,105 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
         assert response.status == 200
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webhook_finished_after_partially_paid_still_activates(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for the top-up flow: a "finished" IPN arriving
+    after an earlier "partially_paid" IPN for the same payment must still
+    activate the service - partially_paid is not terminal on NOWPayments'
+    side (spec §9)."""
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/topup", "np-topup-1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=980, purpose="purchase", plan=plan, vpn_user=None)
+
+    client = await _make_client(bot)
+    try:
+        partial_body, partial_sig = _sign({
+            "order_id": str(payment.id), "payment_id": "np-topup-1", "payment_status": "partially_paid",
+            "actually_paid": "3.0",
+        })
+        r1 = await client.post("/webhooks/crypto", data=partial_body, headers={"x-nowpayments-sig": partial_sig})
+        assert r1.status == 200
+
+        finished_body, finished_sig = _sign({
+            "order_id": str(payment.id), "payment_id": "np-topup-1", "payment_status": "finished",
+            "actually_paid": "5.0",
+        })
+        r2 = await client.post("/webhooks/crypto", data=finished_body, headers={"x-nowpayments-sig": finished_sig})
+        assert r2.status == 200
+    finally:
+        await client.close()
+
+    async with async_session_maker() as session:
+        from app.db.models.payment import Payment
+        from app.db.models.vpn_user import VPNUser
+        from sqlalchemy import select as sa_select
+
+        refreshed = await session.get(Payment, payment.id)
+        assert refreshed.status == "paid"
+
+        rows = (await session.execute(sa_select(VPNUser).where(VPNUser.telegram_id == 980))).scalars().all()
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_webhook_concurrent_finished_deliveries_activate_exactly_once(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for the idempotency-lock fix: two genuinely
+    concurrent identical "finished" IPN deliveries for the same payment
+    must result in exactly one VPNUser and exactly one confirmation
+    message - not a duplicate provisioning attempt and not two
+    contradictory user-facing messages."""
+    import asyncio
+
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/race", "np-race-1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=981, purpose="purchase", plan=plan, vpn_user=None)
+
+    client = await _make_client(bot)
+    try:
+        raw_body, signature = _sign({
+            "order_id": str(payment.id), "payment_id": "np-race-1", "payment_status": "finished",
+            "actually_paid": "5.0",
+        })
+        responses = await asyncio.gather(
+            client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature}),
+            client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature}),
+        )
+        assert {r.status for r in responses} <= {200, 500}
+    finally:
+        await client.close()
+
+    async with async_session_maker() as session:
+        from app.db.models.vpn_user import VPNUser
+        from sqlalchemy import select as sa_select
+
+        rows = (await session.execute(sa_select(VPNUser).where(VPNUser.telegram_id == 981))).scalars().all()
+    assert len(rows) == 1
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert len(sent) == 1

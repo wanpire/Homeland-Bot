@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
+from sqlalchemy import select
 
 from app.db.models.payment import Payment
 from app.db.models.payment_status_event import PaymentStatusEvent
@@ -31,6 +32,12 @@ _FINAL_STATUSES = {
 }
 # waiting / confirming / confirmed / sending are progress states - logged
 # via PaymentStatusEvent but never change Payment.status or notify the user.
+
+# Only these are actually terminal. "partially_paid" is deliberately
+# excluded: on NOWPayments' side the same invoice/deposit address keeps
+# accepting funds after a partially_paid IPN, until a later "finished" IPN
+# for the SAME payment reports it fully paid - spec §9's top-up mechanic.
+_TERMINAL_STATUSES = {"paid", "failed", "refunded"}
 
 _MAX_POSTGRES_INT = 2**31 - 1
 
@@ -83,10 +90,28 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
         if event.raw_status not in _FINAL_STATUSES:
             return web.Response(status=200, text="ok")  # progress state, nothing to do
 
-        # Idempotency guard: a Payment only leaves "pending" once, right
-        # here. A replayed/duplicate IPN for an already-resolved payment
-        # is a no-op.
-        if payment.status != "pending":
+        # Idempotency guard, under a FRESH row lock: re-fetch WITH FOR
+        # UPDATE right here, immediately before the decision, rather than
+        # reusing the lock from the SELECT above (which the audit-event
+        # commit already released). A second, genuinely concurrent
+        # delivery for the same payment blocks on this SELECT until this
+        # transaction commits below, so it always sees this decision's
+        # outcome rather than racing it.
+        #
+        # Only a truly TERMINAL status blocks further processing - "paid",
+        # "failed", "refunded". "pending" and "partially_paid" both stay
+        # open: partially_paid is NOT terminal on NOWPayments' side (the
+        # same invoice keeps accepting funds to the same address until
+        # fully paid), so a later "finished" IPN for a partially_paid
+        # payment must still be able to activate it - this is exactly
+        # spec §9's documented top-up mechanic, which the previous
+        # ("!= pending") gate silently broke.
+        payment = (
+            await session.execute(
+                select(Payment).where(Payment.id == order_id_value).with_for_update()
+            )
+        ).scalar_one()
+        if payment.status in _TERMINAL_STATUSES:
             return web.Response(status=200, text="ignored")
 
         new_status = _FINAL_STATUSES[event.raw_status]
