@@ -211,3 +211,18 @@ async def list_services_with_status(
         status, _ = await get_service_status(client, vpn_user.ibsng_username)
         rows.append((vpn_user, plan, status))
     return rows
+
+
+async def list_renewable_services(session: AsyncSession, telegram_id: int) -> list[tuple[VPNUser, Plan | None]]:
+    """Same shape as list_services_with_status but without the per-row
+    IBSng status lookup (renewability doesn't depend on active/expired/
+    pending) and with trial rows excluded - a trial has no paid plan to
+    renew into, and Free Trial already has its own dedicated flow."""
+    vpn_users = await list_vpn_users_for_telegram_id(session, telegram_id)
+    rows: list[tuple[VPNUser, Plan | None]] = []
+    for vpn_user in vpn_users:
+        if vpn_user.is_trial:
+            continue
+        plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
+        rows.append((vpn_user, plan))
+    return rows
