@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+from decimal import Decimal
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models.discount_code import DiscountCode
+from app.db.models.payment import Payment
+from app.db.models.plan import Plan
+from app.db.models.vpn_user import VPNUser
+from app.services.discounts import discount_price, find_best_auto_discount, increment_discount_usage
+from app.services.ibsng.client import IBSngClient
+from app.services.payments.base import PaymentProvider
+from app.services.payments.crypto_provider import CryptoProvider
+from app.services.vpn_users import create_vpn_user, generate_vpn_credentials, renew_and_change_group
+
+_provider: PaymentProvider = CryptoProvider()
+
+
+async def create_crypto_payment(
+    session: AsyncSession,
+    *,
+    telegram_id: int,
+    purpose: str,  # "purchase" | "renew"
+    plan: Plan,
+    vpn_user: VPNUser | None,  # required for purpose="renew", None for "purchase"
+) -> Payment:
+    discount: DiscountCode | None = await find_best_auto_discount(session, plan.id)
+    amount = discount_price(plan.price_usd, discount.percent) if discount is not None else plan.price_usd
+
+    payment = Payment(
+        telegram_id=telegram_id,
+        purpose=purpose,
+        vpn_user_id=vpn_user.id if vpn_user is not None else None,
+        plan_id=plan.id,
+        discount_code_id=discount.id if discount is not None else None,
+        group_name=plan.group_name,
+        data_cap_mb=plan.data_cap_mb,
+        amount_usd=amount,
+        original_amount_usd=plan.price_usd if discount is not None else None,
+    )
+    if purpose == "purchase":
+        payment.ibsng_username, payment.ibsng_password = generate_vpn_credentials()
+
+    # Committed BEFORE calling the provider, deliberately - NOWPayments'
+    # order_id must be a real, permanent local id, which only exists
+    # once this row is committed. If create_invoice then fails, this row
+    # is left behind as an orphaned "pending, no invoice_url" Payment -
+    # accepted as a harmless stale row, same as any other abandoned
+    # checkout, rather than risk order_id pointing at a row that later
+    # vanished.
+    session.add(payment)
+    await session.commit()
+    await session.refresh(payment)
+
+    invoice_url, provider_payment_id = await _provider.create_invoice(
+        order_id=str(payment.id), amount_usd=amount, description=f"Homeland: {plan.name}"
+    )
+    payment.invoice_url = invoice_url
+    payment.provider_payment_id = provider_payment_id
+    await session.commit()
+    await session.refresh(payment)
+    return payment
