@@ -127,8 +127,11 @@ set in the Admin Panel's final review, which only flagged interpolated
 
 `buy:plan:<plan_id>` looks the plan up via `catalog.get_plan(session, plan_id)`
 (404-equivalent: if `None` — deleted/deactivated between screens — show a
-"plan no longer exists" message with a Back-to-category button, same
-defensive pattern as the Admin Panel's renew flow's `_PLAN_GONE_TEXT`).
+"plan no longer exists" message with a Back-to-Menu button, same
+defensive pattern as the Admin Panel's renew flow's `_PLAN_GONE_TEXT`.
+Back-to-*category*, not Back-to-Menu, would read better, but the category
+isn't derivable once the plan lookup itself has failed — callback data is
+just `buy:plan:<plan_id>`, per §2, so there's nothing to route back to).
 Renders the summary text above with a keyboard:
 
 ```python
