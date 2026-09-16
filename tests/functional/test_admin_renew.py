@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.session import async_session_maker
+from app.services.ibsng.exceptions import IBSngError
 from tests.factories import FAKE_ADMIN_ID, make_callback_update, make_message_update
 from tests.fakes.fake_bot_session import FakeBotSession
 
@@ -75,6 +76,58 @@ async def test_admin_renew_refuses_a_non_homeland_ibsng_account(
     # (c) renew_and_change_group never ran - the account is untouched.
     async with IBSngClient() as client:
         assert await client.get_user_group(username=alobot_username) == alobot_group
+
+
+@pytest.mark.asyncio
+async def test_renew_username_with_html_chars_is_escaped_in_not_found_message(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """The bot's default parse mode is HTML - an admin-typed username
+    containing a raw &, <, or > must be escaped before it's interpolated
+    into the namespace guard's "not found" message."""
+    unsafe_username = "ghost<b>&user"
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:users:renew"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, unsafe_username))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    text = sent[-1][1]["text"]
+    assert "not found" in text.lower()
+    assert "ghost&lt;b&gt;&amp;user" in text
+    assert "ghost<b>&user" not in text
+
+
+@pytest.mark.asyncio
+async def test_renew_ibsng_error_message_is_escaped_in_result(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An IBSngError's message originates from the IBSng server itself -
+    a remote system shared with a sibling bot project, and the one
+    genuinely untrusted external text source in this handler - so it
+    must be escaped before landing in an HTML-parse-mode message."""
+    import app.bot.handlers.admin_renew as admin_renew_handler
+    from app.services.ibsng.client import IBSngClient
+
+    scroll_plan = next(p for p in seeded_catalog["plans"] if p["category"] == "scroll")
+    homeland_username = "homeland-renew-error-test"
+
+    async with IBSngClient() as client:
+        await client.create_user(username=homeland_username, password="abc123", group_name="Trial-Iran", credit=512)
+
+    async def _boom(*args: Any, **kwargs: Any) -> None:
+        raise IBSngError("upstream said <b>bad & broken</b>")
+
+    monkeypatch.setattr(admin_renew_handler, "renew_and_change_group", _boom)
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:users:renew"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, homeland_username))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:users:renew:plan:{scroll_plan['id']}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    text = edited[-1][1]["text"]
+    assert "upstream said &lt;b&gt;bad &amp; broken&lt;/b&gt;" in text
+    assert "<b>bad & broken</b>" not in text
 
 
 @pytest.mark.asyncio

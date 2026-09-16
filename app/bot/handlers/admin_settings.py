@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -39,7 +41,7 @@ async def settings_receive_support_username(message: Message, state: FSMContext)
     async with async_session_maker() as session:
         await set_config(session, "support_username", value)
     await state.clear()
-    await message.answer(f"✅ Support contact set to {value}.", reply_markup=back_to_settings_keyboard())
+    await message.answer(f"✅ Support contact set to {html.escape(value)}.", reply_markup=back_to_settings_keyboard())
 
 
 @router.callback_query(F.data == "adm:settings:syncgroups")

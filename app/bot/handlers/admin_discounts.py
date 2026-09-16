@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -64,7 +65,7 @@ def _detail_text(discount: DiscountCode, scope: str) -> str:
     status = "Active" if discount.is_active else "Inactive"
     visibility = "Public" if discount.is_public else "Private"
     return (
-        f"🏷 <b>{discount.code}</b>\n"
+        f"🏷 <b>{html.escape(discount.code)}</b>\n"
         f"Discount: {discount.percent}%\n"
         f"Usage: {discount.used_count}/{limit}\n"
         f"Plans: {scope}\n"

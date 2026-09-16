@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import logging
 
 from aiogram import F, Router
@@ -76,13 +77,14 @@ async def admin_renew_receive_username(message: Message, state: FSMContext) -> N
 
     if current_group is None:
         await message.answer(
-            f"⚠️ IBSng user {username!r} not found.", reply_markup=admin_renew_username_prompt_keyboard()
+            f"⚠️ IBSng user {html.escape(username)!r} not found.",
+            reply_markup=admin_renew_username_prompt_keyboard(),
         )
         return
     if not is_homeland_group(current_group):
         await message.answer(
-            f"⚠️ {username!r} isn't a Homeland account (currently in group "
-            f"{current_group!r}) — refusing to modify it.",
+            f"⚠️ {html.escape(username)!r} isn't a Homeland account (currently in group "
+            f"{html.escape(current_group)!r}) — refusing to modify it.",
             reply_markup=admin_renew_username_prompt_keyboard(),
         )
         return
@@ -121,13 +123,18 @@ async def admin_renew_execute_cb(callback: CallbackQuery, state: FSMContext) -> 
     except IBSngUserNotFoundError:
         if callback.message is not None:
             await callback.message.edit_text(
-                f"⚠️ IBSng user {username!r} not found.", reply_markup=admin_renew_result_keyboard()
+                f"⚠️ IBSng user {html.escape(username)!r} not found.", reply_markup=admin_renew_result_keyboard()
             )
         await callback.answer()
         return
     except IBSngError as exc:
+        # exc's message originates from the IBSng server itself - a
+        # remote system shared with a sibling bot project, and the one
+        # genuinely untrusted external text source in this handler.
         if callback.message is not None:
-            await callback.message.edit_text(f"⚠️ {exc}", reply_markup=admin_renew_result_keyboard())
+            await callback.message.edit_text(
+                f"⚠️ {html.escape(str(exc))}", reply_markup=admin_renew_result_keyboard()
+            )
         await callback.answer()
         return
 
@@ -136,7 +143,7 @@ async def admin_renew_execute_cb(callback: CallbackQuery, state: FSMContext) -> 
             await session.execute(select(VPNUser).where(VPNUser.ibsng_username == username))
         ).scalar_one_or_none()
 
-    result_text = f"✅ Renewed {username!r} and moved to {plan.name}."
+    result_text = f"✅ Renewed {html.escape(username)!r} and moved to {plan.name}."
     if vpn_user is None:
         result_text += "\n\n(No local account record — this username wasn't created through the bot.)"
     else:

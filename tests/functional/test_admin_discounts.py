@@ -83,6 +83,33 @@ async def test_wizard_requires_at_least_one_plan(dispatcher: Any, bot: Any, fake
 
 
 @pytest.mark.asyncio
+async def test_discount_code_with_html_special_chars_is_escaped_in_detail_view(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """Nothing rejects </&/> at creation time (the wizard prompt says
+    "letters/numbers" but doesn't enforce it), and the detail screen
+    interpolates the code straight into an HTML <b> tag - so an
+    unescaped code would break its own detail screen forever. Bypass the
+    wizard's typed-message path (normalize_discount_code only
+    strips/upper-cases; it doesn't validate characters) by creating the
+    row directly through the service, matching what a real admin typing
+    a code with a stray '<' or '&' would end up with."""
+    from app.services.discounts import create_discount_code
+
+    async with async_session_maker() as session:
+        discount = await create_discount_code(
+            session, code="A&B<C>", percent=Decimal("10"), usage_limit=None, plan_ids=None
+        )
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:discounts:view:{discount.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    detail = edited[-1][1]["text"]
+    assert "A&amp;B&lt;C&gt;" in detail
+    assert "A&B<C>" not in detail
+
+
+@pytest.mark.asyncio
 async def test_toggle_active_flips_status(dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict) -> None:
     from app.services.discounts import create_discount_code, get_discount_code
 
