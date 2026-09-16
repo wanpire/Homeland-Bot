@@ -186,3 +186,195 @@ async def test_renew_category_rejects_another_users_service(
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_plan_shows_price_summary_with_no_discount(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 820
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    text = edited[0][1]["text"]
+    assert "1 Month" in text
+    assert "$5.00" in text
+    assert "Duration: 30 days" in text
+    assert "Data: 10 GB" in text
+    assert "<s>" not in text
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "✅ Renew" in buttons
+    assert any("back" in b.lower() for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_renew_plan_shows_auto_applied_public_discount(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    from decimal import Decimal
+
+    from app.services.discounts import create_discount_code
+
+    telegram_id = 821
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        await create_discount_code(
+            session, code="WELCOME10", percent=Decimal("10"), usage_limit=None, plan_ids=[plan_id], is_public=True
+        )
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    text = edited[0][1]["text"]
+    assert "$5.00" in text
+    assert "$4.50" in text
+    assert "-10%" in text
+
+
+@pytest.mark.asyncio
+async def test_renew_plan_not_found_shows_gone_message(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 822
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:999999"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "no longer exists" in edited[0][1]["text"].lower()
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any("back" in b.lower() for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_renew_plan_rejects_trial_plan_id(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 823
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    trial_plan_id = _plan_id(seeded_catalog, category="trial", name="Trial")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:{trial_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "no longer exists" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_plan_rejects_another_users_service(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    owner_id = 824
+    intruder_id = 825
+    service = await _create_service(seeded_catalog, telegram_id=owner_id, category="stream", name="1 Month")
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(intruder_id, f"renew:plan:{service.id}:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_plan_malformed_plan_id_degrades_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 826
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:not-a-number"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_confirm_shows_coming_soon_and_does_not_mutate_service(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+) -> None:
+    from app.services.ibsng.client import IBSngClient
+
+    telegram_id = 827
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    original_group = service.ibsng_group
+    original_plan_id = service.plan_id
+    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "coming soon" in edited[0][1]["text"].lower()
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any("back" in b.lower() for b in buttons)
+
+    async with async_session_maker() as session:
+        refreshed = await session.get(type(service), service.id)
+    assert refreshed.ibsng_group == original_group
+    assert refreshed.plan_id == original_plan_id
+
+    async with IBSngClient() as client:
+        live_group = await client.get_user_group(username=service.ibsng_username)
+    assert live_group == original_group
+
+
+@pytest.mark.asyncio
+async def test_renew_confirm_not_found_shows_gone_message(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 828
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:999999"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "no longer exists" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_confirm_rejects_trial_plan_id(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 829
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    trial_plan_id = _plan_id(seeded_catalog, category="trial", name="Trial")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{trial_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "no longer exists" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_confirm_rejects_another_users_service(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    owner_id = 830
+    intruder_id = 831
+    service = await _create_service(seeded_catalog, telegram_id=owner_id, category="stream", name="1 Month")
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(intruder_id, f"renew:confirm:{service.id}:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_confirm_malformed_ids_degrade_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(832, "renew:confirm:not-a-number:also-not-a-number"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "not found" in edited[0][1]["text"].lower()

@@ -45,3 +45,11 @@ def renew_plan_keyboard(plans: list[Plan], vpn_user_id: int, category: str) -> I
     builder.button(text="⬅️ Back", callback_data=f"renew:service:{vpn_user_id}")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def renew_price_summary_keyboard(vpn_user_id: int, plan_id: int, category: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Renew", callback_data=f"renew:confirm:{vpn_user_id}:{plan_id}", style="success")
+    builder.button(text="⬅️ Back", callback_data=f"renew:category:{vpn_user_id}:{category}")
+    builder.adjust(1)
+    return builder.as_markup()
