@@ -26,3 +26,11 @@ def buy_plan_keyboard(plans: list[Plan]) -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Back", callback_data="menu:buy")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def buy_price_summary_keyboard(plan_id: int, category: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Buy", callback_data=f"buy:confirm:{plan_id}", style="success")
+    builder.button(text="⬅️ Back", callback_data=f"buy:category:{category}")
+    builder.adjust(1)
+    return builder.as_markup()
