@@ -138,3 +138,15 @@ async def find_best_auto_discount(session: AsyncSession, plan_id: int) -> Discou
     if not candidates:
         return None
     return max(candidates, key=lambda d: d.percent)
+
+
+async def increment_discount_usage(session: AsyncSession, discount_code_id: int) -> None:
+    """Called once per finished payment that applied a discount - see
+    app/services/payments/service.py's activate_finished_payment. The
+    docstring on DiscountCode.used_count has said since Admin Panel
+    shipped that this call was coming; this is it."""
+    discount = await session.get(DiscountCode, discount_code_id)
+    if discount is None:
+        return
+    discount.used_count += 1
+    await session.commit()

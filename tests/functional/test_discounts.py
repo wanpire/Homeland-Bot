@@ -139,3 +139,21 @@ async def test_find_best_auto_discount_ignores_private_codes(seeded_catalog: dic
         await create_discount_code(session, code="PRIVATE99", percent=Decimal("99"), usage_limit=None, plan_ids=None, is_public=False)
         best = await find_best_auto_discount(session, scroll_id)
     assert best.code == "PUBLIC5"
+
+
+@pytest.mark.asyncio
+async def test_increment_discount_usage_increases_used_count() -> None:
+    from app.services.discounts import increment_discount_usage
+
+    async with async_session_maker() as session:
+        discount = await create_discount_code(
+            session, code="BUMP10", percent=Decimal("10"), usage_limit=None, plan_ids=None,
+        )
+    assert discount.used_count == 0
+
+    async with async_session_maker() as session:
+        await increment_discount_usage(session, discount.id)
+
+    async with async_session_maker() as session:
+        refreshed = await get_discount_code(session, discount.id)
+    assert refreshed.used_count == 1
