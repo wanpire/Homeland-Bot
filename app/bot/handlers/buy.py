@@ -8,7 +8,7 @@ from app.bot.keyboards.buy import buy_category_keyboard, buy_plan_keyboard, buy_
 from app.bot.keyboards.trial import back_to_menu_keyboard
 from app.db.models.plan import Plan
 from app.db.session import async_session_maker
-from app.services.catalog import CATEGORIES, format_price_usd, get_plan, list_plans
+from app.services.catalog import CATEGORIES, format_data_cap, format_price_usd, get_plan, list_plans
 from app.services.discounts import discount_price, find_best_auto_discount
 
 router = Router(name="buy")
@@ -50,12 +50,6 @@ _COMING_SOON_TEXT = (
 )
 
 
-def _format_data_cap(data_cap_mb: int) -> str:
-    if data_cap_mb % 1024 == 0:
-        return f"{data_cap_mb // 1024} GB"
-    return f"{data_cap_mb} MB"
-
-
 def _is_buyable(plan: Plan | None) -> bool:
     """Trial is a real, $0.00 plan — Buy must never expose it (that's menu:trial's job)."""
     return plan is not None and plan.category != "trial"
@@ -65,7 +59,7 @@ async def _price_summary_text(session: AsyncSession, plan: Plan) -> str:
     lines = [
         f"🔑 <b>{plan.name} ({plan.category.title()})</b>",
         f"Duration: {plan.duration_days} days",
-        f"Data: {_format_data_cap(plan.data_cap_mb)}",
+        f"Data: {format_data_cap(plan.data_cap_mb)}",
     ]
     discount = await find_best_auto_discount(session, plan.id)
     if discount is not None:

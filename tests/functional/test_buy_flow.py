@@ -31,9 +31,9 @@ async def test_buy_category_shows_scroll_tiers_with_prices(
     assert len(edited) == 1
     all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     buttons = [b["text"] for b in all_buttons]
-    assert "2 Weeks — $3.00" in buttons
-    assert "1 Month — $5.00" in buttons
-    assert "2 Months — $9.00" in buttons
+    assert "2 Weeks — $3.00 (5 GB)" in buttons
+    assert "1 Month — $5.00 (10 GB)" in buttons
+    assert "2 Months — $9.00 (20 GB)" in buttons
     assert any("back" in b.lower() for b in buttons)
 
     callback_data_by_text = {b["text"]: b["callback_data"] for b in all_buttons}
@@ -53,9 +53,9 @@ async def test_buy_category_shows_stream_tiers_with_prices(
     assert len(edited) == 1
     all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     buttons = [b["text"] for b in all_buttons]
-    assert "1 Month — $12.00" in buttons
-    assert "2 Months — $20.00" in buttons
-    assert "3 Months — $29.00" in buttons
+    assert "1 Month — $12.00 (30 GB)" in buttons
+    assert "2 Months — $20.00 (60 GB)" in buttons
+    assert "3 Months — $29.00 (100 GB)" in buttons
 
     callback_data_by_text = {b["text"]: b["callback_data"] for b in all_buttons}
     for name in ("1 Month", "2 Months", "3 Months"):

@@ -49,3 +49,9 @@ async def update_plan(
 
 def format_price_usd(price: Decimal) -> str:
     return f"${price:.2f}"
+
+
+def format_data_cap(data_cap_mb: int) -> str:
+    if data_cap_mb % 1024 == 0:
+        return f"{data_cap_mb // 1024} GB"
+    return f"{data_cap_mb} MB"

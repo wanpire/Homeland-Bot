@@ -130,3 +130,11 @@ def test_format_price_usd() -> None:
 
     assert format_price_usd(Decimal("2.50")) == "$2.50"
     assert format_price_usd(Decimal("30")) == "$30.00"
+
+
+def test_format_data_cap() -> None:
+    from app.services.catalog import format_data_cap
+
+    assert format_data_cap(5120) == "5 GB"
+    assert format_data_cap(10240) == "10 GB"
+    assert format_data_cap(1536) == "1536 MB"

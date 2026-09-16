@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.db.models.plan import Plan
-from app.services.catalog import format_price_usd
+from app.services.catalog import format_data_cap, format_price_usd
 
 
 def buy_category_keyboard() -> InlineKeyboardMarkup:
@@ -20,7 +20,7 @@ def buy_plan_keyboard(plans: list[Plan]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for plan in plans:
         builder.button(
-            text=f"{plan.name} — {format_price_usd(plan.price_usd)}",
+            text=f"{plan.name} — {format_price_usd(plan.price_usd)} ({format_data_cap(plan.data_cap_mb)})",
             callback_data=f"buy:plan:{plan.id}",
         )
     builder.button(text="⬅️ Back", callback_data="menu:buy")
