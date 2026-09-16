@@ -18,7 +18,6 @@ _SUPPORT_TEXT = "☎️ <b>Support</b>\n\nTap the button below to contact suppor
 _SUPPORT_NOT_CONFIGURED_TEXT = "☎️ Support contact isn't configured yet. Please check back soon."
 
 _PLACEHOLDER_CALLBACKS = {
-    "menu:renew",
     "menu:tutorials",
 }
 

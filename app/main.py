@@ -11,7 +11,7 @@ from aiogram.types import BotCommand
 from app.bot.error_handlers import handle_pool_timeout
 from app.bot.handlers import (
     admin, admin_block, admin_discounts, admin_fallback, admin_renew, admin_settings,
-    broadcast, buy, fallback, myservices, trial, tutorial_admin, users,
+    broadcast, buy, fallback, myservices, renew, trial, tutorial_admin, users,
 )
 from app.bot.middlewares.blocked_user import BlockedUserMiddleware
 from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
@@ -51,6 +51,7 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     # routers below it never claim adm:* data.
     dp.include_router(admin_fallback.router)
     dp.include_router(buy.router)
+    dp.include_router(renew.router)
     dp.include_router(myservices.router)
     dp.include_router(users.router)
     dp.include_router(trial.router)
