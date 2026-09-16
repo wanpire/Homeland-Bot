@@ -96,7 +96,13 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
         # commit already released). A second, genuinely concurrent
         # delivery for the same payment blocks on this SELECT until this
         # transaction commits below, so it always sees this decision's
-        # outcome rather than racing it.
+        # outcome rather than racing it. The `payment` object is already
+        # in this session's identity map from the session.get() call
+        # above, so without populate_existing=True this SELECT would just
+        # hand back that SAME cached object with its stale in-memory
+        # .status, silently skipping the refresh from the database that
+        # the whole point of this re-fetch depends on - do not drop it as
+        # "redundant".
         #
         # Only a truly TERMINAL status blocks further processing - "paid",
         # "failed", "refunded". "pending" and "partially_paid" both stay
@@ -108,7 +114,10 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
         # ("!= pending") gate silently broke.
         payment = (
             await session.execute(
-                select(Payment).where(Payment.id == order_id_value).with_for_update()
+                select(Payment)
+                .where(Payment.id == order_id_value)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one()
         if payment.status in _TERMINAL_STATUSES:

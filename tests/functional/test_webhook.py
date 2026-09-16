@@ -407,3 +407,47 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     for _, payload in sent:
         text = payload["text"].lower()
         assert "payment confirmed" in text or "technical issue" in text
+
+
+@pytest.mark.asyncio
+async def test_webhook_concurrent_failed_deliveries_send_exactly_one_message(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for the populate_existing fix: the "failed"/
+    "refunded" branch has no internal commit inside its critical section,
+    so once the idempotency re-fetch actually refreshes the row (rather
+    than returning a stale cached object), concurrent identical "failed"
+    IPN deliveries for the same payment must be fully serialized - only
+    the first should send a message, every later one should see the
+    already-"failed" status and be ignored."""
+    import asyncio
+
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/failrace", "np-failrace-1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=982, purpose="purchase", plan=plan, vpn_user=None)
+
+    client = await _make_client(bot)
+    try:
+        raw_body, signature = _sign({
+            "order_id": str(payment.id), "payment_id": "np-failrace-1", "payment_status": "expired",
+        })
+        responses = await asyncio.gather(*[
+            client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+            for _ in range(5)
+        ])
+        assert all(r.status == 200 for r in responses)
+    finally:
+        await client.close()
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert len(sent) == 1, f"expected exactly 1 message under full serialization, got {len(sent)}"
