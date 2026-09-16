@@ -4,6 +4,8 @@ from app.db.models.bot_user import BotUser
 from app.db.models.discount_code import DiscountCode
 from app.db.models.group import Group
 from app.db.models.openvpn_profile import OpenVpnProfile
+from app.db.models.payment import Payment
+from app.db.models.payment_status_event import PaymentStatusEvent
 from app.db.models.plan import Plan
 from app.db.models.tutorial_guide import TutorialGuide
 from app.db.models.tutorial_platform import TutorialPlatform
@@ -11,6 +13,6 @@ from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 
 __all__ = [
-    "AdminUser", "AppConfig", "BotUser", "DiscountCode", "Group", "OpenVpnProfile", "Plan",
-    "TutorialGuide", "TutorialPlatform", "TutorialProtocol", "VPNUser",
+    "AdminUser", "AppConfig", "BotUser", "DiscountCode", "Group", "OpenVpnProfile", "Payment",
+    "PaymentStatusEvent", "Plan", "TutorialGuide", "TutorialPlatform", "TutorialProtocol", "VPNUser",
 ]
