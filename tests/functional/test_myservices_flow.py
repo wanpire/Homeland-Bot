@@ -167,3 +167,118 @@ async def test_menu_myservices_is_no_longer_a_placeholder(dispatcher: Any, bot: 
 
     answered = [c for c in fake_session.calls if c[0] == "answerCallbackQuery"]
     assert not any("coming soon" in c[1].get("text", "").lower() for c in answered)
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_shows_protocol_picker(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 710
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "which protocol" in edited[0][1]["text"].lower()
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "OpenVPN" in buttons
+    assert "L2TP" in buttons
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_openvpn_delivers_directly_without_platform_step(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    from sqlalchemy import select
+
+    from app.db.models.tutorial_protocol import TutorialProtocol
+
+    telegram_id = 711
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        openvpn_id = (
+            await session.execute(select(TutorialProtocol).where(TutorialProtocol.label == "OpenVPN"))
+        ).scalar_one().id
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}"))
+    await dispatcher.feed_update(
+        bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}:protocol:{openvpn_id}")
+    )
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "sent" in edited[-1][1]["text"].lower()
+    buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🔄 Resend Setup" in buttons
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_l2tp_shows_platform_picker_then_delivers(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    from sqlalchemy import select
+
+    from app.db.models.tutorial_platform import TutorialPlatform
+    from app.db.models.tutorial_protocol import TutorialProtocol
+
+    telegram_id = 712
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        l2tp_id = (await session.execute(select(TutorialProtocol).where(TutorialProtocol.label == "L2TP"))).scalar_one().id
+        ios_id = (await session.execute(select(TutorialPlatform).where(TutorialPlatform.label == "iOS"))).scalar_one().id
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}"))
+    await dispatcher.feed_update(
+        bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}:protocol:{l2tp_id}")
+    )
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "which device" in edited[-1][1]["text"].lower()
+
+    fake_session.reset()
+    await dispatcher.feed_update(
+        bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}:platform:{l2tp_id}:{ios_id}")
+    )
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "sent" in edited[-1][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_does_not_resend_credentials(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    from sqlalchemy import select
+
+    from app.db.models.tutorial_protocol import TutorialProtocol
+
+    telegram_id = 713
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        openvpn_id = (
+            await session.execute(select(TutorialProtocol).where(TutorialProtocol.label == "OpenVPN"))
+        ).scalar_one().id
+
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}"))
+    await dispatcher.feed_update(
+        bot, make_callback_update(telegram_id, f"myservices:resend:{service.id}:protocol:{openvpn_id}")
+    )
+
+    sent = [c for c in fake_session.calls if c[0] in ("sendMessage", "sendPhoto", "sendDocument", "sendVideo")]
+    assert not any(
+        "password" in c[1].get("text", "").lower() or "password" in c[1].get("caption", "").lower() for c in sent
+    )
+
+
+@pytest.mark.asyncio
+async def test_myservices_resend_rejects_another_users_service(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    owner_id = 714
+    intruder_id = 715
+    service = await _create_service(seeded_catalog, telegram_id=owner_id, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(intruder_id, f"myservices:resend:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "not found" in edited[0][1]["text"].lower()

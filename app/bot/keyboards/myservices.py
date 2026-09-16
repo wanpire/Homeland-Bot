@@ -4,6 +4,8 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.db.models.plan import Plan
+from app.db.models.tutorial_platform import TutorialPlatform
+from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 
 _STATUS_BADGE = {
@@ -41,4 +43,27 @@ def myservices_detail_keyboard(vpn_user_id: int) -> InlineKeyboardMarkup:
     builder.button(text="🔄 Resend Setup", callback_data=f"myservices:resend:{vpn_user_id}")
     builder.button(text="⬅️ Back to List", callback_data="menu:myservices")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def myservices_protocol_keyboard(protocols: list[TutorialProtocol], vpn_user_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for protocol in protocols:
+        builder.button(text=protocol.label, callback_data=f"myservices:resend:{vpn_user_id}:protocol:{protocol.id}")
+    builder.button(text="⬅️ Back to Service", callback_data=f"myservices:view:{vpn_user_id}")
+    builder.adjust(2, 1)
+    return builder.as_markup()
+
+
+def myservices_platform_keyboard(
+    platforms: list[TutorialPlatform], vpn_user_id: int, protocol_id: int
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for platform in platforms:
+        builder.button(
+            text=platform.label,
+            callback_data=f"myservices:resend:{vpn_user_id}:platform:{protocol_id}:{platform.id}",
+        )
+    builder.button(text="⬅️ Back", callback_data=f"myservices:resend:{vpn_user_id}")
+    builder.adjust(2, 2, 1)
     return builder.as_markup()

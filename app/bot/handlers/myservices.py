@@ -4,13 +4,23 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.myservices import myservices_detail_keyboard, myservices_empty_keyboard, myservices_list_keyboard
+from app.bot.keyboards.myservices import (
+    myservices_detail_keyboard,
+    myservices_empty_keyboard,
+    myservices_list_keyboard,
+    myservices_platform_keyboard,
+    myservices_protocol_keyboard,
+)
 from app.bot.keyboards.trial import back_to_menu_keyboard
+from app.db.models.plan import Plan
+from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.services.catalog import get_plan
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
+from app.services.tutorial_delivery import deliver_setup
+from app.services.tutorials import list_platforms, list_protocols
 from app.services.vpn_users import get_owned_vpn_user, get_service_status, list_services_with_status
 
 router = Router(name="myservices")
@@ -18,6 +28,10 @@ router = Router(name="myservices")
 _LIST_TEXT = "🛍 <b>My Services</b>"
 _EMPTY_TEXT = "🛍 <b>My Services</b>\n\nYou don't have any services yet."
 _NOT_FOUND_TEXT = "⚠️ Service not found."
+_PROTOCOL_PROMPT_TEXT = "🔌 Which protocol do you want to use?"
+_PLATFORM_PROMPT_TEXT = "📱 Which device do you want to set it up on?"
+_RESENT_TEXT = "✅ Sent — check the message above."
+_RESEND_BLOCKED_TEXT = "⚠️ See the message above for details."
 
 
 @router.callback_query(F.data == "menu:myservices")
@@ -89,3 +103,61 @@ async def myservices_view_cb(callback: CallbackQuery) -> None:
     if callback.message is not None:
         await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user.id))
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("myservices:resend:"))
+async def myservices_resend_cb(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":")
+    vpn_user_id = int(parts[2])
+    telegram_id = callback.from_user.id
+
+    async with async_session_maker() as session:
+        vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
+        if vpn_user is None:
+            if callback.message is not None:
+                await callback.message.edit_text(_NOT_FOUND_TEXT, reply_markup=back_to_menu_keyboard())
+            await callback.answer()
+            return
+
+        if len(parts) == 3:
+            # myservices:resend:<id> - entry point, show the protocol picker.
+            protocols = await list_protocols(session)
+            if callback.message is not None:
+                await callback.message.edit_text(
+                    _PROTOCOL_PROMPT_TEXT, reply_markup=myservices_protocol_keyboard(protocols, vpn_user_id)
+                )
+            await callback.answer()
+            return
+
+        if parts[3] == "protocol":
+            protocol_id = int(parts[4])
+            protocol = await session.get(TutorialProtocol, protocol_id)
+            if protocol is not None and protocol.label.strip().lower() == "openvpn":
+                delivered, _ = await deliver_setup(
+                    callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=None
+                )
+                text = _RESENT_TEXT if delivered else _RESEND_BLOCKED_TEXT
+                if callback.message is not None:
+                    await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user_id))
+                await callback.answer()
+                return
+
+            platforms = await list_platforms(session)
+            if callback.message is not None:
+                await callback.message.edit_text(
+                    _PLATFORM_PROMPT_TEXT,
+                    reply_markup=myservices_platform_keyboard(platforms, vpn_user_id, protocol_id),
+                )
+            await callback.answer()
+            return
+
+        # parts[3] == "platform": myservices:resend:<id>:platform:<protocol_id>:<platform_id>
+        protocol_id = int(parts[4])
+        platform_id = int(parts[5])
+        delivered, _ = await deliver_setup(
+            callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=platform_id
+        )
+        text = _RESENT_TEXT if delivered else _RESEND_BLOCKED_TEXT
+        if callback.message is not None:
+            await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user_id))
+        await callback.answer()
