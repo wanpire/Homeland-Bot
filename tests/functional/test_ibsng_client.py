@@ -81,3 +81,23 @@ async def test_lock_and_delete_user(ibsng_server: FakeIBSngServer) -> None:
         await client.delete_user(username="frank_vpn")
         with pytest.raises(IBSngUserNotFoundError):
             await client.change_user_group(username="frank_vpn", group_name="HL-1M")
+
+
+@pytest.mark.asyncio
+async def test_renew_user_is_idempotent() -> None:
+    from app.services.ibsng.client import IBSngClient
+
+    async with IBSngClient() as client:
+        await client.create_user(username="renew-target", password="abc123", group_name="Trial-Iran", credit=1024)
+        await client.renew_user(username="renew-target")
+        await client.renew_user(username="renew-target")  # second call must not raise
+
+
+@pytest.mark.asyncio
+async def test_renew_user_raises_not_found_for_unknown_username() -> None:
+    from app.services.ibsng.client import IBSngClient
+    from app.services.ibsng.exceptions import IBSngUserNotFoundError
+
+    async with IBSngClient() as client:
+        with pytest.raises(IBSngUserNotFoundError):
+            await client.renew_user(username="does-not-exist")

@@ -137,18 +137,26 @@ async def seeded_catalog(_migrate_test_database: None) -> dict[str, list[dict[st
 
     from app.db.session import engine
 
+    # "id" is prepended to every SELECT but deliberately kept OUT of the
+    # *_SEED_COLUMNS tuples, which are the model-derived "everything the
+    # migration actually set" lists. _clean_database re-adds "id" itself
+    # when it rebuilds the INSERT, so the ids cached here are the ids the
+    # rows carry after every TRUNCATE/re-seed cycle too - see the
+    # id-pinning note there. Tests that need a real Plan/Group id - to
+    # satisfy a foreign key or pass one to a service function - can read
+    # it off the cached dict instead of a live query.
     async with engine.connect() as conn:
         group_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_GROUP_SEED_COLUMNS)} FROM groups ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_GROUP_SEED_COLUMNS)} FROM groups ORDER BY id"))
         ).mappings().all()
         plan_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_PLAN_SEED_COLUMNS)} FROM plans ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_PLAN_SEED_COLUMNS)} FROM plans ORDER BY id"))
         ).mappings().all()
         platform_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_PLATFORM_SEED_COLUMNS)} FROM tutorial_platforms ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_PLATFORM_SEED_COLUMNS)} FROM tutorial_platforms ORDER BY id"))
         ).mappings().all()
         protocol_rows = (
-            await conn.execute(text(f"SELECT {', '.join(_PROTOCOL_SEED_COLUMNS)} FROM tutorial_protocols ORDER BY id"))
+            await conn.execute(text(f"SELECT id, {', '.join(_PROTOCOL_SEED_COLUMNS)} FROM tutorial_protocols ORDER BY id"))
         ).mappings().all()
 
     cached = {
@@ -170,6 +178,21 @@ def _insert_statement(table: str, columns: tuple[str, ...]) -> str:
     return f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
 
 
+def _resync_sequence_statement(table: str) -> str:
+    """Pushes `table`'s id sequence past the highest id just re-seeded.
+
+    The re-seed INSERTs supply their own ids (see _clean_database), which
+    leaves the sequence sitting wherever RESTART IDENTITY put it (1). A
+    test that then inserts its OWN row into one of these tables and lets
+    the DB assign the id - e.g. the sync-groups test, whose sync_groups()
+    does session.add(Group(name=...)) - would otherwise collide with a
+    pinned seed id and fail on the primary key."""
+    return (
+        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+        f"(SELECT COALESCE(MAX(id), 1) FROM {table}))"
+    )
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _clean_database(seeded_catalog: dict[str, list[dict[str, Any]]]) -> AsyncGenerator[None, None]:
     from sqlalchemy import text
@@ -183,21 +206,26 @@ async def _clean_database(seeded_catalog: dict[str, list[dict[str, Any]]]) -> As
             await conn.execute(text(f"TRUNCATE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
 
         # Restore the catalog the migration seeded (TRUNCATE wiped it).
-        group_stmt = text(_insert_statement("groups", _GROUP_SEED_COLUMNS))
-        for row in seeded_catalog["groups"]:
-            await conn.execute(group_stmt, row)
-
-        plan_stmt = text(_insert_statement("plans", _PLAN_SEED_COLUMNS))
-        for row in seeded_catalog["plans"]:
-            await conn.execute(plan_stmt, row)
-
-        platform_stmt = text(_insert_statement("tutorial_platforms", _PLATFORM_SEED_COLUMNS))
-        for row in seeded_catalog["platforms"]:
-            await conn.execute(platform_stmt, row)
-
-        protocol_stmt = text(_insert_statement("tutorial_protocols", _PROTOCOL_SEED_COLUMNS))
-        for row in seeded_catalog["protocols"]:
-            await conn.execute(protocol_stmt, row)
+        #
+        # Every re-seed INSERT pins "id" explicitly instead of letting the
+        # restarted identity sequence reassign one. Without that pinning
+        # the re-inserted rows get fresh ids starting at 1, while
+        # seeded_catalog still caches the ids the MIGRATIONS assigned
+        # (revision 0004 deletes 0002's four placeholder plans and inserts
+        # the seven real ones, so those land on ids 5-11, not 1-7) - so
+        # every `seeded_catalog["plans"][i]["id"]` silently pointed at the
+        # wrong row, or at no row at all, from the very first test onward.
+        # Pinning makes the cached ids true for the whole session.
+        for table, columns, key in (
+            ("groups", _GROUP_SEED_COLUMNS, "groups"),
+            ("plans", _PLAN_SEED_COLUMNS, "plans"),
+            ("tutorial_platforms", _PLATFORM_SEED_COLUMNS, "platforms"),
+            ("tutorial_protocols", _PROTOCOL_SEED_COLUMNS, "protocols"),
+        ):
+            insert_stmt = text(_insert_statement(table, ("id",) + columns))
+            for row in seeded_catalog[key]:
+                await conn.execute(insert_stmt, row)
+            await conn.execute(text(_resync_sequence_statement(table)))
 
     yield
 

@@ -9,7 +9,10 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
 from app.bot.error_handlers import handle_pool_timeout
-from app.bot.handlers import fallback, trial, tutorial_admin, users
+from app.bot.handlers import (
+    admin, admin_block, admin_discounts, admin_fallback, admin_renew, admin_settings,
+    broadcast, fallback, trial, tutorial_admin, users,
+)
 from app.bot.middlewares.blocked_user import BlockedUserMiddleware
 from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
 from app.bot.middlewares.user_tracking import UserTrackingMiddleware
@@ -35,6 +38,18 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.update.outer_middleware(UserTrackingMiddleware())
     dp.update.outer_middleware(BlockedUserMiddleware())
 
+    dp.include_router(admin.router)
+    dp.include_router(admin_block.router)
+    dp.include_router(admin_discounts.router)
+    dp.include_router(admin_renew.router)
+    dp.include_router(admin_settings.router)
+    dp.include_router(broadcast.router)
+    # MUST stay after every adm:*-handling router above (admin,
+    # admin_block, admin_discounts, admin_renew, admin_settings,
+    # broadcast) - it claims any adm:* callback none of them matched, so
+    # registering it earlier would shadow a legitimate handler. The
+    # routers below it never claim adm:* data.
+    dp.include_router(admin_fallback.router)
     dp.include_router(users.router)
     dp.include_router(trial.router)
     dp.include_router(tutorial_admin.router)

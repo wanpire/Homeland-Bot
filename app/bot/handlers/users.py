@@ -18,7 +18,6 @@ _PLACEHOLDER_CALLBACKS = {
     "menu:renew",
     "menu:myservices",
     "menu:tutorials",
-    "adm:root",
 }
 
 

@@ -20,10 +20,11 @@ def tutorial_admin_root_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📚 Upload a guide", callback_data="tutadm:guide")
     builder.button(text="📡 Upload an OpenVPN profile", callback_data="tutadm:profile")
     builder.button(text="📥 Set a download link", callback_data="tutadm:link")
-    # There is no admin root menu yet (the full Admin Panel is its own
-    # later project), so this flow's own root steps back to the bot's
-    # main menu rather than nowhere.
-    builder.button(text="⬅️ Back to Menu", callback_data="menu:root")
+    # The Admin Panel root menu now exists (adm:root). Users can reach this
+    # flow via /admintutorials command or via adm:tutorials callback from the
+    # admin root menu. Both entry points target the same root admin handler,
+    # so this flow consistently steps back to the admin root menu.
+    builder.button(text="⬅️ Back to Admin Panel", callback_data="adm:root")
     builder.adjust(1)
     return builder.as_markup()
 
