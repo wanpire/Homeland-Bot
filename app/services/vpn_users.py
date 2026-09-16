@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
+from app.services.catalog import get_plan
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
 
@@ -194,3 +196,17 @@ async def list_vpn_users_for_telegram_id(session: AsyncSession, telegram_id: int
         .scalars()
         .all()
     )
+
+
+async def list_services_with_status(
+    session: AsyncSession, client: IBSngClient, telegram_id: int
+) -> list[tuple[VPNUser, Plan | None, str]]:
+    """One call assembling everything myservices_list_cb needs to render -
+    keeps the per-row IBSng-status-lookup loop out of the handler."""
+    vpn_users = await list_vpn_users_for_telegram_id(session, telegram_id)
+    rows: list[tuple[VPNUser, Plan | None, str]] = []
+    for vpn_user in vpn_users:
+        plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
+        status, _ = await get_service_status(client, vpn_user.ibsng_username)
+        rows.append((vpn_user, plan, status))
+    return rows

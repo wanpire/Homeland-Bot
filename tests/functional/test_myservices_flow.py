@@ -82,9 +82,47 @@ async def test_myservices_detail_shows_plan_status_and_credentials(
     assert "1 Month" in text
     assert "✅ Active until" in text
     assert service.ibsng_username in text
+    assert "Password:" in text
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "🔄 Resend Setup" in buttons
     assert any("back" in b.lower() for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_myservices_detail_password_lookup_failure_falls_back(
+    dispatcher: Any,
+    bot: Any,
+    fake_session: FakeBotSession,
+    seeded_catalog: dict,
+    ibsng_server: FakeIBSngServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transient IBSng failure while re-reading the password must not
+    crash the detail screen - it must render with a fallback message
+    instead, the same way trial credential delivery already handles this
+    exact IBSngClient.get_user_password call (see test_trial_flow.py's
+    test_trial_credentials_ibsng_failure_tells_user_to_contact_support)."""
+    from app.services.ibsng.client import IBSngClient
+    from app.services.ibsng.exceptions import IBSngError
+
+    telegram_id = 709
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+    future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M")
+    ibsng_server.set_user_attr(service.ibsng_username, "nearest_exp_date", future)
+
+    async def _boom(self: Any, *, username: str) -> str | None:
+        raise IBSngError("IBSng is down")
+
+    monkeypatch.setattr(IBSngClient, "get_user_password", _boom)
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    text = edited[0][1]["text"]
+    assert "✅ Active until" in text
+    assert "unavailable" in text.lower()
+    assert "contact support" in text.lower()
 
 
 @pytest.mark.asyncio

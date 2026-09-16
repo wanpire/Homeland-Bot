@@ -6,12 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.myservices import myservices_detail_keyboard, myservices_empty_keyboard, myservices_list_keyboard
 from app.bot.keyboards.trial import back_to_menu_keyboard
-from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.services.catalog import get_plan
 from app.services.ibsng.client import IBSngClient
-from app.services.vpn_users import get_owned_vpn_user, get_service_status, list_vpn_users_for_telegram_id
+from app.services.ibsng.exceptions import IBSngError
+from app.services.vpn_users import get_owned_vpn_user, get_service_status, list_services_with_status
 
 router = Router(name="myservices")
 
@@ -23,20 +23,14 @@ _NOT_FOUND_TEXT = "⚠️ Service not found."
 @router.callback_query(F.data == "menu:myservices")
 async def myservices_list_cb(callback: CallbackQuery) -> None:
     telegram_id = callback.from_user.id
-    async with async_session_maker() as session:
-        vpn_users = await list_vpn_users_for_telegram_id(session, telegram_id)
-        if not vpn_users:
-            if callback.message is not None:
-                await callback.message.edit_text(_EMPTY_TEXT, reply_markup=myservices_empty_keyboard())
-            await callback.answer()
-            return
+    async with async_session_maker() as session, IBSngClient() as client:
+        rows = await list_services_with_status(session, client, telegram_id)
 
-        rows: list[tuple[VPNUser, Plan | None, str]] = []
-        async with IBSngClient() as client:
-            for vpn_user in vpn_users:
-                plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
-                status, _ = await get_service_status(client, vpn_user.ibsng_username)
-                rows.append((vpn_user, plan, status))
+    if not rows:
+        if callback.message is not None:
+            await callback.message.edit_text(_EMPTY_TEXT, reply_markup=myservices_empty_keyboard())
+        await callback.answer()
+        return
 
     if callback.message is not None:
         await callback.message.edit_text(_LIST_TEXT, reply_markup=myservices_list_keyboard(rows))
@@ -57,7 +51,15 @@ async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPN
     else:
         status_line = "Status: ⚠️ Couldn't check status right now."
 
-    password = await client.get_user_password(username=vpn_user.ibsng_username)
+    # Mirrors app/bot/handlers/trial.py's _send_trial_credentials: a
+    # transient IBSng failure fetching the password must never crash the
+    # screen showing it - get_service_status above is already immune to
+    # this (it never raises), but get_user_password has no such
+    # guarantee, so it needs its own try/except here.
+    try:
+        password = await client.get_user_password(username=vpn_user.ibsng_username)
+    except IBSngError:
+        password = None
     password_line = (
         f"Password: <code>{password}</code>" if password is not None else "Password: unavailable — contact support"
     )
