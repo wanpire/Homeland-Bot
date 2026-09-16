@@ -30,7 +30,15 @@ def buy_plan_keyboard(plans: list[Plan]) -> InlineKeyboardMarkup:
 
 def buy_price_summary_keyboard(plan_id: int, category: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Buy", callback_data=f"buy:confirm:{plan_id}", style="success")
+    builder.button(text="₿ Pay with Crypto", callback_data=f"buy:confirm:{plan_id}", style="success")
     builder.button(text="⬅️ Back", callback_data=f"buy:category:{category}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def payment_link_keyboard(invoice_url: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔗 Open Payment Page", url=invoice_url)
+    builder.button(text="⬅️ Back to Menu", callback_data="menu:root")
     builder.adjust(1)
     return builder.as_markup()

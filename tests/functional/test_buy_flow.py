@@ -123,7 +123,7 @@ async def test_buy_plan_shows_price_summary_with_no_discount(
     assert "Data: 10 GB" in text
     assert "<s>" not in text
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    assert "✅ Buy" in buttons
+    assert "₿ Pay with Crypto" in buttons
     assert any("back" in b.lower() for b in buttons)
 
 
@@ -187,15 +187,26 @@ async def test_buy_plan_not_found_shows_gone_message(dispatcher: Any, bot: Any, 
 
 @pytest.mark.asyncio
 async def test_buy_confirm_shows_coming_soon_and_creates_no_account(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+    dispatcher: Any,
+    bot: Any,
+    fake_session: FakeBotSession,
+    seeded_catalog: dict,
+    ibsng_server: FakeIBSngServer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from sqlalchemy import select
 
+    from app.config import get_settings
     from app.db.models.vpn_user import VPNUser
     from app.db.session import async_session_maker
 
     plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
 
+    # No real payment provider is configured (Stripe never shipped, and
+    # this test predates NOWPayments wiring) - buy_confirm_cb must fall
+    # back to the coming-soon screen and, crucially, still create no
+    # orphan VPN/IBSng account.
+    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
     await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
@@ -247,3 +258,89 @@ async def test_buy_confirm_rejects_trial_plan_id(
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "no longer exists" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_buy_confirm_creates_payment_and_shows_link(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from decimal import Decimal
+
+    from app.services.payments.crypto_provider import CryptoProvider
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/buytest", "np-buy-1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "complete your payment" in edited[0][1]["text"].lower()
+    all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    link_button = next(b for b in all_buttons if b["text"] == "🔗 Open Payment Page")
+    assert link_button["url"] == "https://nowpayments.io/payment/buytest"
+
+    from app.db.session import async_session_maker
+
+    async with async_session_maker() as session:
+        from sqlalchemy import select
+
+        from app.db.models.payment import Payment
+
+        rows = (await session.execute(select(Payment).where(Payment.telegram_id == 999))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].purpose == "purchase"
+    assert rows[0].plan_id == plan_id
+    assert rows[0].provider_payment_id == "np-buy-1"
+
+
+@pytest.mark.asyncio
+async def test_buy_confirm_shows_coming_soon_when_provider_not_configured(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import get_settings
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "coming soon" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_buy_confirm_shows_unavailable_message_on_api_error(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.payments import nowpayments
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async def _boom(*, order_id: str, amount, description: str):
+        raise nowpayments.NowPaymentsError("simulated failure")
+
+    monkeypatch.setattr(nowpayments, "create_invoice", _boom)
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "couldn't reach the payment provider" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_buy_price_summary_shows_crypto_button(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict,
+) -> None:
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:plan:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "₿ Pay with Crypto" in buttons
+    assert "✅ Buy" not in buttons
