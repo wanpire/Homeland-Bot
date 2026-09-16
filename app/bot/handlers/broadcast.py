@@ -8,15 +8,16 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters.admin import IsFullAdmin
 from app.bot.keyboards.admin import admin_root_menu
 from app.bot.keyboards.broadcast import broadcast_compose_keyboard, broadcast_confirm_keyboard
 from app.bot.states.broadcast import BroadcastStates
+from app.db.models.bot_user import BotUser
 from app.db.session import async_session_maker
 from app.services.admin_users import has_level
-from app.services.bot_users import list_bot_user_ids
 
 router = Router(name="broadcast")
 router.message.filter(IsFullAdmin())
@@ -38,11 +39,20 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 
 async def _list_broadcast_recipients(session: AsyncSession, *, exclude_telegram_id: int) -> list[int]:
-    """Every tracked bot user except the admin running the broadcast -
-    UserTrackingMiddleware records the admin's own interaction too, so
-    without this they'd receive their own announcement (and, in
-    _run_broadcast's case, its summary) as if they were a recipient."""
-    return [tid for tid in await list_bot_user_ids(session) if tid != exclude_telegram_id]
+    """Every tracked, unblocked bot user except the admin running the
+    broadcast - UserTrackingMiddleware records the admin's own
+    interaction too, so without excluding them they'd receive their own
+    announcement (and, in _run_broadcast's case, its summary) as if they
+    were a recipient. Blocked users (BotUser.is_blocked) are excluded too:
+    BlockedUserMiddleware stops them from interacting with the bot, but
+    nothing stops the bot from messaging them unless this query does."""
+    result = await session.execute(
+        select(BotUser.telegram_id).where(
+            BotUser.is_blocked.is_(False),
+            BotUser.telegram_id != exclude_telegram_id,
+        )
+    )
+    return [row[0] for row in result.all()]
 
 
 @router.callback_query(F.data == "adm:broadcast")
@@ -55,12 +65,20 @@ async def broadcast_start_cb(callback: CallbackQuery, state: FSMContext) -> None
 
 @router.message(BroadcastStates.content)
 async def broadcast_receive_content_msg(message: Message, state: FSMContext) -> None:
+    # message.html_text re-renders the message's formatting entities as
+    # HTML and correctly escapes any literal &/</> the admin typed - the
+    # bot's default parse mode is HTML (app/main.py), and a raw,
+    # unescaped message.text/message.caption containing one of those
+    # characters makes Telegram reject the whole send as malformed HTML.
+    # (When only a caption is set, message.text is None, so html_text
+    # falls back to rendering message.caption/caption_entities - aiogram
+    # has no separate html_caption property.)
     if message.photo:
-        content: dict[str, Any] = {"kind": "photo", "file_id": message.photo[-1].file_id, "caption": message.caption or ""}
+        content: dict[str, Any] = {"kind": "photo", "file_id": message.photo[-1].file_id, "caption": message.html_text}
     elif message.document:
-        content = {"kind": "document", "file_id": message.document.file_id, "caption": message.caption or ""}
+        content = {"kind": "document", "file_id": message.document.file_id, "caption": message.html_text}
     elif message.text:
-        content = {"kind": "text", "text": message.text}
+        content = {"kind": "text", "text": message.html_text}
     else:
         await message.answer("⚠️ Send text, a photo, or a document.", reply_markup=broadcast_compose_keyboard())
         return

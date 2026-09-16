@@ -83,6 +83,65 @@ async def test_broadcast_continues_past_a_blocked_recipient(dispatcher: Any, bot
 
 
 @pytest.mark.asyncio
+async def test_broadcast_with_html_special_chars_is_escaped_and_still_sends(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """The bot's default parse mode is HTML - a raw, unescaped &, <, or >
+    in the broadcast text would make Telegram reject the whole send as
+    malformed HTML (TelegramBadRequest), failing EVERY recipient, not
+    just one message. message.html_text must be used so the text is
+    escaped (and any formatting entities re-rendered as HTML) before
+    it's ever sent. Assert the send actually succeeded - the recipient's
+    message text is present and non-empty - not just that nothing
+    raised."""
+    async with async_session_maker() as session:
+        await seed_bot_user(session, 716, username="dave")
+
+    raw_text = "Update: usage < 5GB & price > $3 stays the same."
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:broadcast"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, raw_text))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:broadcast:confirm"))
+    await _drain_background_tasks()
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    recipient_call = next(c for c in sent if c[1]["chat_id"] == 716)
+    delivered_text = recipient_call[1]["text"]
+    assert delivered_text  # the send succeeded - not silently dropped/empty
+    assert "Update: usage &lt; 5GB &amp; price &gt; $3 stays the same." in delivered_text
+    assert raw_text not in delivered_text
+
+    summary = next(c for c in sent if "broadcast done" in c[1].get("text", "").lower())
+    assert "sent: 1" in summary[1]["text"].lower()
+    assert "failed: 0" in summary[1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_broadcast_excludes_blocked_users(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    """A user an admin has blocked via the block feature (BotUser.is_blocked)
+    must never receive a broadcast - BlockedUserMiddleware only stops
+    them from interacting with the bot, it does nothing to stop the bot
+    from messaging them."""
+    from app.services.bot_users import block_user
+
+    async with async_session_maker() as session:
+        await seed_bot_user(session, 717, username="blocked_bot_user")
+        await seed_bot_user(session, 718, username="unblocked_bot_user")
+        await block_user(session, 717, blocked=True)
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:broadcast"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "announcement"))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:broadcast:confirm"))
+    await _drain_background_tasks()
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    reached = {c[1]["chat_id"] for c in sent if c[1].get("text") == "announcement"}
+    assert reached == {718}
+    assert 717 not in reached
+
+
+@pytest.mark.asyncio
 async def test_broadcast_cancel_returns_to_admin_root(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:broadcast"))
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:broadcast:cancel"))
