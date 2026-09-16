@@ -18,6 +18,7 @@ from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.services.admin_users import has_level
 from app.services.catalog import get_plan, list_plans
+from app.services.groups import is_homeland_group
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserNotFoundError
 from app.services.vpn_users import renew_and_change_group
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 _USERNAME_PROMPT_TEXT = "Send the IBSng username to renew:"
 _EMPTY_USERNAME_TEXT = "⚠️ Send a non-empty username."
+_VERIFY_FAILED_TEXT = "⚠️ Couldn't verify this account right now — please try again shortly."
 _PLAN_PROMPT_TEXT = "Pick the plan/group to renew into:"
 _PLAN_GONE_TEXT = "⚠️ That plan no longer exists. Start over."
 
@@ -56,6 +58,35 @@ async def admin_renew_receive_username(message: Message, state: FSMContext) -> N
     if not username:
         await message.answer(_EMPTY_USERNAME_TEXT, reply_markup=admin_renew_username_prompt_keyboard())
         return
+
+    # Namespace guard, BEFORE the plan picker is ever offered. This flow
+    # is the branch's only write path into an arbitrary typed IBSng
+    # username, and the IBSng instance is shared with AloBot (see
+    # CLAUDE.md and app/services/groups.py): renewing a mistyped or
+    # pasted AloBot username would reset another business's customer
+    # account and move it into a Homeland pricing group. Refuse before
+    # anything is mutated rather than relying on the execute step.
+    try:
+        async with IBSngClient() as client:
+            current_group = await client.get_user_group(username=username)
+    except IBSngError:
+        logger.exception("Could not verify IBSng group for username=%r", username)
+        await message.answer(_VERIFY_FAILED_TEXT, reply_markup=admin_renew_username_prompt_keyboard())
+        return
+
+    if current_group is None:
+        await message.answer(
+            f"⚠️ IBSng user {username!r} not found.", reply_markup=admin_renew_username_prompt_keyboard()
+        )
+        return
+    if not is_homeland_group(current_group):
+        await message.answer(
+            f"⚠️ {username!r} isn't a Homeland account (currently in group "
+            f"{current_group!r}) — refusing to modify it.",
+            reply_markup=admin_renew_username_prompt_keyboard(),
+        )
+        return
+
     await state.update_data(username=username)
     await state.set_state(AdminRenewStates.plan)
     async with async_session_maker() as session:

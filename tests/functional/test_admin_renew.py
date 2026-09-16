@@ -20,16 +20,61 @@ async def test_non_admin_cannot_start_renew_flow(dispatcher: Any, bot: Any, fake
 
 @pytest.mark.asyncio
 async def test_admin_renews_unknown_ibsng_username_shows_not_found(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
 ) -> None:
-    scroll_plan = next(p for p in seeded_catalog["plans"] if p["category"] == "scroll")
-
+    """The namespace guard looks the account up at the username step, so
+    "not found" now lands before a plan is ever offered - there is no
+    plan-pick step left to reach."""
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:users:renew"))
     await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "ghost-user"))
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:users:renew:plan:{scroll_plan['id']}"))
 
-    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert "not found" in edited[-1][1]["text"].lower()
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert "not found" in sent[-1][1]["text"].lower()
+    assert "pick the plan" not in sent[-1][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_admin_renew_refuses_a_non_homeland_ibsng_account(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """Homeland shares its IBSng instance with AloBot (CLAUDE.md,
+    app/services/groups.py). A typed/pasted AloBot username must be
+    refused outright - never renewed, never moved into a Homeland pricing
+    group."""
+    from app.services.ibsng.client import IBSngClient
+
+    alobot_username = "alobot-customer"
+    alobot_group = "1M-1U-Prime"  # a seeded non-Homeland group on the fake shared instance
+
+    async with IBSngClient() as client:
+        await client.create_user(
+            username=alobot_username, password="abc123", group_name=alobot_group, credit=1024
+        )
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:users:renew"))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, alobot_username))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    refusal = sent[-1][1]
+    assert "isn't a homeland account" in refusal["text"].lower()
+    assert alobot_group in refusal["text"]
+
+    # (b) no plan picker was offered - not in the text, and not as buttons.
+    assert "pick the plan" not in refusal["text"].lower()
+    plan_buttons = [
+        b
+        for c in fake_session.calls
+        if c[0] in ("sendMessage", "editMessageText")
+        for row in (c[1].get("reply_markup") or {}).get("inline_keyboard", [])
+        for b in row
+        if b.get("callback_data", "").startswith("adm:users:renew:plan:")
+    ]
+    assert plan_buttons == []
+
+    # (c) renew_and_change_group never ran - the account is untouched.
+    async with IBSngClient() as client:
+        assert await client.get_user_group(username=alobot_username) == alobot_group
 
 
 @pytest.mark.asyncio
