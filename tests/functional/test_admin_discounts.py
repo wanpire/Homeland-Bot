@@ -114,6 +114,60 @@ async def test_delete_requires_confirmation(dispatcher: Any, bot: Any, fake_sess
 
 
 @pytest.mark.asyncio
+async def test_edit_all_plans_discount_shows_every_plan_checked(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    from app.services.catalog import list_plans
+    from app.services.discounts import create_discount_code
+
+    async with async_session_maker() as session:
+        discount = await create_discount_code(
+            session, code="ALLPLANS", percent=Decimal("10"), usage_limit=None, plan_ids=None
+        )
+        active_plans = await list_plans(session, active_only=True)
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:discounts:edit:{discount.id}"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "25"))
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:discounts:wizard:unlimited"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    rows = edited[-1][1]["reply_markup"]["inline_keyboard"]
+    plan_button_texts = [
+        btn["text"] for row in rows for btn in row if btn["callback_data"].startswith("adm:discounts:wizard:plan:")
+    ]
+    assert len(plan_button_texts) == len(active_plans)
+    assert plan_button_texts, "expected at least one plan button"
+    assert all(text.startswith("☑️") for text in plan_button_texts)
+
+
+@pytest.mark.asyncio
+async def test_edit_shows_current_usage_limit_and_visibility(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    from app.services.discounts import create_discount_code
+
+    scroll_id = _plan_id(seeded_catalog, "scroll")
+    async with async_session_maker() as session:
+        discount = await create_discount_code(
+            session, code="HINTME", percent=Decimal("10"), usage_limit=7, plan_ids=[scroll_id], is_public=False
+        )
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:discounts:edit:{discount.id}"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "20"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("current usage limit: 7" in c[1].get("text", "").lower() for c in sent)
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:discounts:wizard:unlimited"))
+    # scroll_id is already pre-selected from the edit prefill; no need to
+    # (and mustn't - it would toggle it off) tap it again before "Done".
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:discounts:wizard:plansdone"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "current visibility: private" in edited[-1][1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_edit_skips_name_step_and_preserves_code(dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict) -> None:
     from app.services.discounts import create_discount_code, get_discount_code
 

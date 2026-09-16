@@ -78,6 +78,32 @@ async def _render_list() -> tuple[str, InlineKeyboardMarkup]:
     return _LIST_TEXT, discount_list_keyboard(discounts)
 
 
+def _usage_limit_hint(discount: DiscountCode) -> str:
+    limit = "Unlimited" if discount.usage_limit is None else str(discount.usage_limit)
+    return f"Current usage limit: {limit}"
+
+
+def _visibility_hint(discount: DiscountCode) -> str:
+    return f"Current visibility: {'Public' if discount.is_public else 'Private'}"
+
+
+async def _prompt_with_edit_hint(state: FSMContext, prompt: str, hint_builder: Any) -> str:
+    """Prepends a "Current X: ..." reminder line to a wizard prompt when
+    the wizard is in edit mode (editing_id set), mirroring the hint
+    discount_edit_cb already shows for the percent step - so every step
+    an admin passes through while editing reflects the value they're
+    about to overwrite, not just the first one."""
+    data = await state.get_data()
+    editing_id = data.get("editing_id")
+    if editing_id is None:
+        return prompt
+    async with async_session_maker() as session:
+        discount = await get_discount_code(session, editing_id)
+    if discount is None:
+        return prompt
+    return f"{hint_builder(discount)}\n\n{prompt}"
+
+
 @router.callback_query(F.data == "adm:discounts")
 async def discounts_list_cb(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
@@ -154,21 +180,27 @@ async def discount_edit_cb(callback: CallbackQuery, state: FSMContext) -> None:
     discount_id = int(callback.data.split(":")[-1])
     async with async_session_maker() as session:
         discount = await get_discount_code(session, discount_id)
-    if discount is None:
-        text, keyboard = await _render_list()
-        if callback.message is not None:
-            await callback.message.edit_text(text, reply_markup=keyboard)
-        await callback.answer()
-        return
+        if discount is None:
+            text, keyboard = await _render_list()
+            if callback.message is not None:
+                await callback.message.edit_text(text, reply_markup=keyboard)
+            await callback.answer()
+            return
+        active_plans = await list_plans(session, active_only=True)
 
     # Editing skips the name step (code text is immutable) and pre-fills
     # every other field, matching AloBot's editing_id-conditional flow.
-    await state.set_state(DiscountCodeStates.percent)
-    await state.update_data(
-        editing_id=discount.id,
-        code=discount.code,
-        selected_plan_ids=[int(p) for p in discount.plan_ids.split(",")] if discount.plan_ids else [],
+    # plan_ids is None means "every plan" - pre-select every currently
+    # active plan so the picker reflects that instead of showing nothing
+    # checked (mirrors the symmetric "all selected -> plan_ids=None"
+    # collapse in discount_wizard_finish_cb).
+    selected_plan_ids = (
+        [p.id for p in active_plans]
+        if discount.plan_ids is None
+        else [int(p) for p in discount.plan_ids.split(",")]
     )
+    await state.set_state(DiscountCodeStates.percent)
+    await state.update_data(editing_id=discount.id, code=discount.code, selected_plan_ids=selected_plan_ids)
     if callback.message is not None:
         await callback.message.edit_text(
             f"Current percent: {discount.percent}%\n\n{_PERCENT_PROMPT_TEXT}", reply_markup=wizard_cancel_keyboard()
@@ -206,7 +238,8 @@ async def discount_wizard_receive_percent(message: Message, state: FSMContext) -
         return
     await state.update_data(percent=str(percent))
     await state.set_state(DiscountCodeStates.usage_limit)
-    await message.answer(_USAGE_LIMIT_PROMPT_TEXT, reply_markup=wizard_usage_limit_keyboard())
+    text = await _prompt_with_edit_hint(state, _USAGE_LIMIT_PROMPT_TEXT, _usage_limit_hint)
+    await message.answer(text, reply_markup=wizard_usage_limit_keyboard())
 
 
 async def _enter_plans_step(state: FSMContext) -> tuple[str, InlineKeyboardMarkup]:
@@ -275,8 +308,9 @@ async def discount_wizard_plans_done_cb(callback: CallbackQuery, state: FSMConte
         await callback.answer(_NEED_ONE_PLAN_TEXT, show_alert=True)
         return
     await state.set_state(DiscountCodeStates.visibility)
+    text = await _prompt_with_edit_hint(state, _VISIBILITY_PROMPT_TEXT, _visibility_hint)
     if callback.message is not None:
-        await callback.message.edit_text(_VISIBILITY_PROMPT_TEXT, reply_markup=wizard_visibility_keyboard())
+        await callback.message.edit_text(text, reply_markup=wizard_visibility_keyboard())
     await callback.answer()
 
 
