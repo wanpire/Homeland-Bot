@@ -134,6 +134,20 @@ async def test_renew_service_malformed_id_degrades_gracefully(
 
 
 @pytest.mark.asyncio
+async def test_renew_service_out_of_range_id_degrades_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """A numerically-valid but out-of-int32-range id (PostgreSQL's
+    `integer` column can't hold it) must degrade to the not-found screen,
+    not raise an unhandled asyncpg.DataError."""
+    await dispatcher.feed_update(bot, make_callback_update(833, "renew:service:2147483648"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_renew_category_shows_scroll_tiers_with_prices(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:
@@ -144,6 +158,7 @@ async def test_renew_category_shows_scroll_tiers_with_prices(
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
+    assert "Renew 1 Month" in edited[0][1]["text"]
     all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     buttons = [b["text"] for b in all_buttons]
     assert "2 Weeks — $3.00 (5 GB)" in buttons
@@ -294,6 +309,20 @@ async def test_renew_plan_malformed_plan_id_degrades_gracefully(
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_plan_out_of_range_plan_id_degrades_gracefully(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 834
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:2147483648"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "no longer exists" in edited[0][1]["text"].lower()
 
 
 @pytest.mark.asyncio

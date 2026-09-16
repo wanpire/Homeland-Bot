@@ -24,7 +24,6 @@ router = Router(name="renew")
 _LIST_TEXT = "♻️ <b>Renew Service</b>\n\nWhich service do you want to renew?"
 _EMPTY_TEXT = "♻️ <b>Renew Service</b>\n\nYou don't have any services to renew yet."
 _NOT_FOUND_TEXT = "⚠️ Service not found."
-_TIER_TEXT = "Pick a plan:"
 _PLAN_GONE_TEXT = "⚠️ That plan no longer exists. Please pick another."
 _COMING_SOON_TEXT = (
     "🚧 Payment methods (Stripe, crypto) are coming soon — we'll let you know "
@@ -35,6 +34,40 @@ _COMING_SOON_TEXT = (
 # Trial has no renewal concept - it's excluded from every category/tier
 # screen in this flow, same as Buy excludes it from its own.
 _RENEW_CATEGORIES = tuple(category for category in CATEGORIES if category != "trial")
+
+_MAX_POSTGRES_INT = 2**31 - 1
+
+
+def _parse_int(raw: str) -> int | None:
+    """Parses a callback_data id segment as a plain integer, with no
+    upper bound check. Used where an out-of-range-but-well-formed id
+    should still flow into its lookup so it degrades through that
+    lookup's own not-found/gone screen, rather than the generic
+    not-found screen used for a segment that isn't a number at all."""
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _in_postgres_int_range(value: int) -> bool:
+    """VPNUser.id and Plan.id are both PostgreSQL `integer` (int4)
+    columns - a numerically valid but out-of-range value (e.g.
+    "2147483648") passes int() only to raise an unhandled
+    asyncpg.DataError once bound to a query."""
+    return 0 < value <= _MAX_POSTGRES_INT
+
+
+def _parse_id(raw: str) -> int | None:
+    """Parses a callback_data id segment, rejecting anything that isn't
+    a well-formed, in-range id - used where any invalid id (malformed or
+    out-of-range) should degrade to the same generic not-found screen,
+    because an invalid id here means we don't even know which record is
+    being referenced."""
+    value = _parse_int(raw)
+    if value is None or not _in_postgres_int_range(value):
+        return None
+    return value
 
 
 async def _not_found(callback: CallbackQuery) -> None:
@@ -70,9 +103,8 @@ async def renew_service_cb(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
-    try:
-        vpn_user_id = int(parts[2])
-    except (IndexError, ValueError):
+    vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
+    if vpn_user_id is None:
         await _not_found(callback)
         return
 
@@ -94,9 +126,8 @@ async def renew_category_cb(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
-    try:
-        vpn_user_id = int(parts[2])
-    except (IndexError, ValueError):
+    vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
+    if vpn_user_id is None:
         await _not_found(callback)
         return
 
@@ -117,8 +148,9 @@ async def renew_category_cb(callback: CallbackQuery) -> None:
 
         plans = await list_plans(session, category=category, active_only=True)
 
+    text = f"♻️ <b>Renew {name}</b>\n\nPick a plan:"
     if callback.message is not None:
-        await callback.message.edit_text(_TIER_TEXT, reply_markup=renew_plan_keyboard(plans, vpn_user_id, category))
+        await callback.message.edit_text(text, reply_markup=renew_plan_keyboard(plans, vpn_user_id, category))
     await callback.answer()
 
 
@@ -152,10 +184,13 @@ async def renew_plan_cb(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
-    try:
-        vpn_user_id = int(parts[2])
-        plan_id = int(parts[3])
-    except (IndexError, ValueError):
+    vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
+    if vpn_user_id is None:
+        await _not_found(callback)
+        return
+
+    plan_id = _parse_int(parts[3]) if len(parts) > 3 else None
+    if plan_id is None:
         await _not_found(callback)
         return
 
@@ -165,7 +200,7 @@ async def renew_plan_cb(callback: CallbackQuery) -> None:
             await _not_found(callback)
             return
 
-        plan = await get_plan(session, plan_id)
+        plan = await get_plan(session, plan_id) if _in_postgres_int_range(plan_id) else None
         if not _is_renewable(plan):
             if callback.message is not None:
                 await callback.message.edit_text(_PLAN_GONE_TEXT, reply_markup=back_to_menu_keyboard())
@@ -187,10 +222,13 @@ async def renew_confirm_cb(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
-    try:
-        vpn_user_id = int(parts[2])
-        plan_id = int(parts[3])
-    except (IndexError, ValueError):
+    vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
+    if vpn_user_id is None:
+        await _not_found(callback)
+        return
+
+    plan_id = _parse_int(parts[3]) if len(parts) > 3 else None
+    if plan_id is None:
         await _not_found(callback)
         return
 
@@ -200,7 +238,7 @@ async def renew_confirm_cb(callback: CallbackQuery) -> None:
             await _not_found(callback)
             return
 
-        plan = await get_plan(session, plan_id)
+        plan = await get_plan(session, plan_id) if _in_postgres_int_range(plan_id) else None
         if not _is_renewable(plan):
             if callback.message is not None:
                 await callback.message.edit_text(_PLAN_GONE_TEXT, reply_markup=back_to_menu_keyboard())
