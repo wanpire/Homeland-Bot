@@ -222,7 +222,7 @@ async def test_renew_plan_shows_price_summary_with_no_discount(
     assert "Data: 10 GB" in text
     assert "<s>" not in text
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    assert "✅ Renew" in buttons
+    assert "₿ Pay with Crypto" in buttons
     assert any("back" in b.lower() for b in buttons)
 
 
@@ -327,8 +327,14 @@ async def test_renew_plan_out_of_range_plan_id_degrades_gracefully(
 
 @pytest.mark.asyncio
 async def test_renew_confirm_shows_coming_soon_and_does_not_mutate_service(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+    dispatcher: Any,
+    bot: Any,
+    fake_session: FakeBotSession,
+    seeded_catalog: dict,
+    ibsng_server: FakeIBSngServer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from app.config import get_settings
     from app.services.ibsng.client import IBSngClient
 
     telegram_id = 827
@@ -337,6 +343,9 @@ async def test_renew_confirm_shows_coming_soon_and_does_not_mutate_service(
     original_plan_id = service.plan_id
     scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
 
+    # No real payment provider is configured - renew_confirm_cb must fall
+    # back to the coming-soon screen and leave the service untouched.
+    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
@@ -407,3 +416,74 @@ async def test_renew_confirm_malformed_ids_degrade_gracefully(
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_confirm_creates_payment_and_shows_link(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from decimal import Decimal
+
+    from app.services.payments.crypto_provider import CryptoProvider
+
+    telegram_id = 840
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/renewtest", "np-renew-1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "complete your payment" in edited[0][1]["text"].lower()
+    all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    link_button = next(b for b in all_buttons if b["text"] == "🔗 Open Payment Page")
+    assert link_button["url"] == "https://nowpayments.io/payment/renewtest"
+
+    async with async_session_maker() as session:
+        from sqlalchemy import select
+
+        from app.db.models.payment import Payment
+
+        rows = (await session.execute(select(Payment).where(Payment.telegram_id == telegram_id))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].purpose == "renew"
+    assert rows[0].vpn_user_id == service.id
+    assert rows[0].plan_id == scroll_plan_id
+
+
+@pytest.mark.asyncio
+async def test_renew_confirm_shows_coming_soon_when_provider_not_configured(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import get_settings
+
+    telegram_id = 841
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "coming soon" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_renew_price_summary_shows_crypto_button(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict,
+) -> None:
+    telegram_id = 842
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:{scroll_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "₿ Pay with Crypto" in buttons
+    assert "✅ Renew" not in buttons

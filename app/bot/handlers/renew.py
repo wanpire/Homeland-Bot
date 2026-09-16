@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.keyboards.buy import payment_link_keyboard
 from app.bot.keyboards.renew import (
     renew_category_keyboard,
     renew_empty_keyboard,
@@ -17,7 +20,11 @@ from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.services.catalog import CATEGORIES, format_data_cap, format_price_usd, get_plan, list_plans
 from app.services.discounts import discount_price, find_best_auto_discount
+from app.services.payments.nowpayments import NowPaymentsError, PaymentProviderNotConfiguredError
+from app.services.payments.service import create_crypto_payment
 from app.services.vpn_users import get_owned_vpn_user, list_renewable_services
+
+logger = logging.getLogger(__name__)
 
 router = Router(name="renew")
 
@@ -29,6 +36,16 @@ _COMING_SOON_TEXT = (
     "🚧 Payment methods (Stripe, crypto) are coming soon — we'll let you know "
     "the moment they're live. No charge has been made and your service has not "
     "been changed."
+)
+_PAYMENT_LINK_TEXT = (
+    "💳 <b>Complete your payment</b>\n\n"
+    "Tap below to open the payment page — you'll be able to choose your "
+    "coin and network there. We'll confirm automatically once payment is "
+    "received; no need to come back and check."
+)
+_PAYMENT_UNAVAILABLE_TEXT = (
+    "⚠️ We couldn't reach the payment provider right now. Please try again "
+    "in a few minutes, or contact support if this keeps happening."
 )
 
 # Trial has no renewal concept - it's excluded from every category/tier
@@ -245,8 +262,25 @@ async def renew_confirm_cb(callback: CallbackQuery) -> None:
             await callback.answer()
             return
 
+        try:
+            payment = await create_crypto_payment(
+                session, telegram_id=telegram_id, purpose="renew", plan=plan, vpn_user=vpn_user,
+            )
+        except PaymentProviderNotConfiguredError:
+            if callback.message is not None:
+                await callback.message.edit_text(_COMING_SOON_TEXT, reply_markup=back_to_menu_keyboard())
+            await callback.answer()
+            return
+        except NowPaymentsError:
+            logger.error("NOWPayments invoice creation failed for vpn_user %s plan %s", vpn_user_id, plan_id)
+            if callback.message is not None:
+                await callback.message.edit_text(_PAYMENT_UNAVAILABLE_TEXT, reply_markup=back_to_menu_keyboard())
+            await callback.answer()
+            return
+
     # renew_and_change_group is deliberately never called here - no
-    # renewal is executed until a real payment provider exists (spec §7).
+    # renewal is executed until the webhook (app/webhook.py) reports the
+    # payment as "finished".
     if callback.message is not None:
-        await callback.message.edit_text(_COMING_SOON_TEXT, reply_markup=back_to_menu_keyboard())
+        await callback.message.edit_text(_PAYMENT_LINK_TEXT, reply_markup=payment_link_keyboard(payment.invoice_url))
     await callback.answer()
