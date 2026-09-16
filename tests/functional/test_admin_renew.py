@@ -37,7 +37,6 @@ async def test_admin_renews_bot_created_account_updates_row_and_notifies_user(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:
     from app.db.models.vpn_user import VPNUser
-    from app.services.catalog import get_plan
     from app.services.ibsng.client import IBSngClient
     from app.services.vpn_users import create_vpn_user, generate_vpn_credentials
 
@@ -57,11 +56,14 @@ async def test_admin_renews_bot_created_account_updates_row_and_notifies_user(
     fake_session.reset()
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:users:renew:plan:{new_plan['id']}"))
 
+    # Compared against the seeded_catalog row directly, NOT against a
+    # re-fetch of whatever row `new_plan["id"]` happens to resolve to -
+    # the re-fetch version passed even while the fixture's cached ids had
+    # drifted off the real rows, because it compared a value to itself.
     async with async_session_maker() as session:
         refreshed = (await session.execute(select(VPNUser).where(VPNUser.ibsng_username == username))).scalar_one()
-        plan = await get_plan(session, new_plan["id"])
-    assert refreshed.plan_id == plan.id
-    assert refreshed.ibsng_group == plan.group_name
+    assert refreshed.plan_id == new_plan["id"]
+    assert refreshed.ibsng_group == new_plan["group_name"]
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert any(c[1]["chat_id"] == customer_telegram_id for c in sent)
