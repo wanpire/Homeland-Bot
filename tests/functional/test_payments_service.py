@@ -217,3 +217,126 @@ async def test_create_crypto_payment_applies_auto_discount(
     assert payment.amount_usd == Decimal("4.50")
     assert payment.original_amount_usd == Decimal("5.00")
     assert payment.discount_code_id == discount.id
+
+
+@pytest.mark.asyncio
+async def test_activate_finished_payment_purchase_creates_vpn_user(
+    seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.db.session import async_session_maker as make_session
+    from app.services.ibsng.client import IBSngClient
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import activate_finished_payment, create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/act", "np-2000"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with make_session() as session:
+        from app.services.catalog import get_plan
+
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=960, purpose="purchase", plan=plan, vpn_user=None)
+
+    async with make_session() as session, IBSngClient() as client:
+        from sqlalchemy import select
+
+        from app.db.models.payment import Payment
+
+        payment = await session.get(Payment, payment.id)
+        username = await activate_finished_payment(session, client, payment)
+        await session.commit()
+
+        from app.db.models.vpn_user import VPNUser
+
+        rows = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 960))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].ibsng_username == username
+    assert payment.vpn_user_id == rows[0].id
+
+
+@pytest.mark.asyncio
+async def test_activate_finished_payment_renew_updates_existing_service(
+    seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.db.session import async_session_maker as make_session
+    from app.services.ibsng.client import IBSngClient
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import activate_finished_payment, create_crypto_payment
+    from app.services.vpn_users import create_vpn_user, generate_vpn_credentials
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/renew2", "np-2001"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    scroll_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    stream_id = _plan_id(seeded_catalog, category="stream", name="1 Month")
+    username, password = generate_vpn_credentials()
+    async with make_session() as session, IBSngClient() as client:
+        existing = await create_vpn_user(
+            session, client, telegram_id=961, username=username, password=password,
+            group_name="1M-1U-Iran-10G", data_cap_mb=10240, plan_id=scroll_id,
+        )
+
+    async with make_session() as session:
+        from app.services.catalog import get_plan
+
+        new_plan = await get_plan(session, stream_id)
+        payment = await create_crypto_payment(session, telegram_id=961, purpose="renew", plan=new_plan, vpn_user=existing)
+
+    async with make_session() as session, IBSngClient() as client:
+        from app.db.models.payment import Payment
+
+        payment = await session.get(Payment, payment.id)
+        returned_username = await activate_finished_payment(session, client, payment)
+        await session.commit()
+
+        from app.db.models.vpn_user import VPNUser
+
+        refreshed = await session.get(VPNUser, existing.id)
+
+    assert returned_username == existing.ibsng_username
+    assert refreshed.ibsng_group == "1M-1U-Iran-30G"
+    assert refreshed.plan_id == stream_id
+
+
+@pytest.mark.asyncio
+async def test_activate_finished_payment_increments_discount_usage(
+    seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.db.session import async_session_maker as make_session
+    from app.services.discounts import create_discount_code, get_discount_code
+    from app.services.ibsng.client import IBSngClient
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import activate_finished_payment, create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/disc2", "np-2002"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with make_session() as session:
+        discount = await create_discount_code(
+            session, code="ACT10", percent=Decimal("10"), usage_limit=None, plan_ids=[plan_id], is_public=True,
+        )
+
+    async with make_session() as session:
+        from app.services.catalog import get_plan
+
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=962, purpose="purchase", plan=plan, vpn_user=None)
+
+    async with make_session() as session, IBSngClient() as client:
+        from app.db.models.payment import Payment
+
+        payment = await session.get(Payment, payment.id)
+        await activate_finished_payment(session, client, payment)
+        await session.commit()
+
+    async with make_session() as session:
+        refreshed_discount = await get_discount_code(session, discount.id)
+    assert refreshed_discount.used_count == 1

@@ -61,3 +61,37 @@ async def create_crypto_payment(
     await session.commit()
     await session.refresh(payment)
     return payment
+
+
+async def activate_finished_payment(session: AsyncSession, client: IBSngClient, payment: Payment) -> str:
+    """Only called once, guarded by the webhook route's idempotency check
+    (payment.status == "pending") before this runs. Returns the
+    username to show the buyer - either newly created or the existing
+    renewed one."""
+    if payment.purpose == "purchase":
+        vpn_user = await create_vpn_user(
+            session, client,
+            telegram_id=payment.telegram_id,
+            username=payment.ibsng_username,
+            password=payment.ibsng_password,
+            group_name=payment.group_name,
+            data_cap_mb=payment.data_cap_mb,
+            plan_id=payment.plan_id,
+        )
+        payment.vpn_user_id = vpn_user.id
+        username = vpn_user.ibsng_username
+    else:
+        vpn_user = await session.get(VPNUser, payment.vpn_user_id)
+        await renew_and_change_group(
+            session, client,
+            username=vpn_user.ibsng_username,
+            new_group_name=payment.group_name,
+            new_plan_id=payment.plan_id,
+            new_data_cap_mb=payment.data_cap_mb,
+        )
+        username = vpn_user.ibsng_username
+
+    if payment.discount_code_id is not None:
+        await increment_discount_usage(session, payment.discount_code_id)
+
+    return username
