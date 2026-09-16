@@ -43,7 +43,6 @@ async def test_start_shows_admin_button_for_admin(dispatcher: Any, bot: Any, fak
 async def test_placeholder_callbacks_answer_coming_soon(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     for callback_data in (
         "menu:renew",
-        "menu:myservices",
         "menu:tutorials",
     ):
         fake_session.reset()

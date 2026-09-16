@@ -19,7 +19,6 @@ _SUPPORT_NOT_CONFIGURED_TEXT = "☎️ Support contact isn't configured yet. Ple
 
 _PLACEHOLDER_CALLBACKS = {
     "menu:renew",
-    "menu:myservices",
     "menu:tutorials",
 }
 

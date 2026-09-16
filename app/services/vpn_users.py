@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import secrets
 import string
 
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.vpn_user import VPNUser
 from app.services.ibsng.client import IBSngClient
+from app.services.ibsng.exceptions import IBSngError
 
 _CREDENTIAL_CHARS = string.ascii_lowercase + string.digits
 _USERNAME_PREFIX = "hl."
@@ -134,3 +136,61 @@ async def renew_and_change_group(
         vpn_user.expiry_reminder_sent_at = None
         vpn_user.low_quota_reminder_sent_at = None
         await session.commit()
+
+
+def parse_ibsng_expiry(raw: str) -> dt.datetime | None:
+    """IBSng's nearest_exp_date reads None until an account's first
+    connection starts the countdown; once set, confirmed live (on this
+    shared instance, via the sibling AloBot project) as "YYYY-MM-DD HH:MM"
+    (e.g. "2026-09-23 15:41"). Defensively tries that shape plus a couple
+    of common fallbacks, and returns None (treat as unknown, don't crash)
+    rather than guess on an unrecognized format."""
+    raw = raw.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return dt.datetime.strptime(raw, fmt).replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            continue
+    try:
+        parsed = dt.datetime.fromisoformat(raw)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+
+async def get_service_status(client: IBSngClient, username: str) -> tuple[str, dt.datetime | None]:
+    """Never raises - a status check failing must never crash the screen
+    showing it. Returns ("unknown", None) on any IBSng error or
+    unparseable date, ("pending", None) when IBSng has no expiry yet
+    (never connected), else ("active"|"expired", the parsed datetime)."""
+    try:
+        raw = await client.get_user_expiry(username=username)
+    except IBSngError:
+        return "unknown", None
+    if not raw:
+        return "pending", None
+    expiry = parse_ibsng_expiry(raw)
+    if expiry is None:
+        return "unknown", None
+    now = dt.datetime.now(dt.timezone.utc)
+    return ("active" if expiry > now else "expired"), expiry
+
+
+async def get_owned_vpn_user(session: AsyncSession, vpn_user_id: int, telegram_id: int) -> VPNUser | None:
+    return (
+        await session.execute(
+            select(VPNUser).where(VPNUser.id == vpn_user_id, VPNUser.telegram_id == telegram_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def list_vpn_users_for_telegram_id(session: AsyncSession, telegram_id: int) -> list[VPNUser]:
+    return list(
+        (
+            await session.execute(
+                select(VPNUser).where(VPNUser.telegram_id == telegram_id).order_by(VPNUser.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
