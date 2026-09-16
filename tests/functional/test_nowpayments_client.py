@@ -162,3 +162,20 @@ def test_verify_ipn_signature_rejects_malformed_json() -> None:
     from app.services.payments import nowpayments
 
     assert nowpayments.verify_ipn_signature(b"not json", "abc123", "secret") is False
+
+
+def test_verify_ipn_signature_rejects_blank_secret() -> None:
+    import hashlib
+    import hmac as hmac_module
+    import json as json_module
+
+    from app.services.payments import nowpayments
+
+    payload = {"order_id": "42"}
+    raw_body = json_module.dumps(payload).encode()
+    canonical = json_module.dumps(payload, sort_keys=True, separators=(",", ":"))
+    # A signature computed with an empty-string key - what an attacker
+    # could trivially reproduce if the real secret is still unconfigured.
+    forged_signature = hmac_module.new(b"", canonical.encode(), hashlib.sha512).hexdigest()
+
+    assert nowpayments.verify_ipn_signature(raw_body, forged_signature, "") is False

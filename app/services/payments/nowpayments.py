@@ -72,7 +72,7 @@ def verify_ipn_signature(raw_body: bytes, signature: str, ipn_secret: str) -> bo
     """NOWPayments signs a sorted-keys JSON encoding of the IPN payload
     with HMAC-SHA512 using the IPN secret (separate from the API key) -
     exact technique ported from the sibling project's nowpayments.py."""
-    if not signature:
+    if not signature or not ipn_secret:
         return False
     try:
         payload = json.loads(raw_body)

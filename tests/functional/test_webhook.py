@@ -248,3 +248,48 @@ async def test_webhook_failed_marks_payment_failed(
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert len(sent) == 1
     assert "did not complete" in sent[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aiogram.exceptions import TelegramForbiddenError
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+    from app.services.vpn_users import VPNUsernameTakenError
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str):
+        return "https://nowpayments.io/payment/wh5", "np-wh-5"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=974, purpose="purchase", plan=plan, vpn_user=None)
+
+    async def _boom(*args, **kwargs):
+        raise VPNUsernameTakenError("collision")
+
+    # Patch at the point app/webhook.py imports it from, so the handler's
+    # call actually raises this.
+    import app.webhook as webhook_module
+    monkeypatch.setattr(webhook_module, "activate_finished_payment", _boom)
+
+    async def _blocked(*args, **kwargs):
+        raise TelegramForbiddenError(method=None, message="bot was blocked by the user")
+
+    monkeypatch.setattr(bot, "send_message", _blocked)
+
+    client = await _make_client(bot)
+    try:
+        raw_body, signature = _sign({
+            "order_id": str(payment.id), "payment_id": "np-wh-5", "payment_status": "finished",
+            "actually_paid": "5.0",
+        })
+        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        assert response.status == 200
+    finally:
+        await client.close()
