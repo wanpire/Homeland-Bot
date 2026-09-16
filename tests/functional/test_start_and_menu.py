@@ -24,7 +24,8 @@ async def test_start_shows_english_main_menu(dispatcher: Any, bot: Any, fake_ses
         "♻️ Renew Service",
         "🎁 Free Trial",
         "🛍 My Services",
-        "📚 Tutorial & Support",
+        "📚 Tutorials",
+        "☎️ Support",
     ]
 
 
@@ -53,6 +54,34 @@ async def test_placeholder_callbacks_answer_coming_soon(dispatcher: Any, bot: An
         answered = [call for call in fake_session.calls if call[0] == "answerCallbackQuery"]
         assert len(answered) == 1
         assert "coming soon" in answered[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_menu_support_shows_configured_contact(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.db.session import async_session_maker
+    from app.services.app_config import set_config
+
+    async with async_session_maker() as session:
+        await set_config(session, "support_username", "@homeland_support")
+
+    update = make_callback_update(999, "menu:support")
+    await dispatcher.feed_update(bot, update)
+
+    edited = [call for call in fake_session.calls if call[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "@homeland_support" in edited[0][1]["text"]
+    buttons = [btn["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for btn in row]
+    assert any("back" in b.lower() for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_menu_support_falls_back_when_not_configured(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    update = make_callback_update(999, "menu:support")
+    await dispatcher.feed_update(bot, update)
+
+    edited = [call for call in fake_session.calls if call[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "isn't configured" in edited[0][1]["text"].lower()
 
 
 @pytest.mark.asyncio
