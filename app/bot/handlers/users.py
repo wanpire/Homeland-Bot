@@ -19,7 +19,6 @@ PLACEHOLDER_TEXT = "🚧 This feature is coming soon."
 _SUPPORT_NOT_CONFIGURED_TEXT = "☎️ Support contact isn't configured yet. Please check back soon."
 
 _PLACEHOLDER_CALLBACKS = {
-    "menu:buy",
     "menu:renew",
     "menu:myservices",
     "menu:tutorials",
