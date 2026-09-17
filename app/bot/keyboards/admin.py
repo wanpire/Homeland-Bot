@@ -43,6 +43,7 @@ def admin_settings_menu() -> InlineKeyboardMarkup:
     builder.button(text="☎️ Support Contact", callback_data="adm:settings:support")
     builder.button(text="🔄 Sync IBSng Groups", callback_data="adm:settings:syncgroups")
     builder.button(text="📢 Mandatory Channel", callback_data="adm:settings:channel")
+    builder.button(text="⏰ Renewal Reminders", callback_data="adm:settings:reminders")
     builder.button(text="⬅️ Back to Admin Panel", callback_data="adm:root")
     builder.adjust(1)
     return builder.as_markup()

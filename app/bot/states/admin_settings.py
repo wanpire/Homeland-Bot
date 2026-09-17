@@ -9,3 +9,7 @@ class EditSupportStates(StatesGroup):
 
 class EditMandatoryChannelStates(StatesGroup):
     channels = State()
+
+
+class EditReminderStates(StatesGroup):
+    days_before = State()

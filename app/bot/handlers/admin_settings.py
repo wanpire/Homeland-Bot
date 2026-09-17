@@ -11,12 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters.admin import IsFullAdmin
 from app.bot.keyboards.admin_settings import back_to_settings_keyboard, settings_edit_cancel_keyboard
-from app.bot.states.admin_settings import EditMandatoryChannelStates, EditSupportStates
+from app.bot.states.admin_settings import EditMandatoryChannelStates, EditReminderStates, EditSupportStates
 from app.db.session import async_session_maker
-from app.services.app_config import set_config
+from app.services.app_config import get_config, set_config
 from app.services.groups import sync_groups
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
+from app.services.reminders import DEFAULT_DAYS_BEFORE
 from app.services.mandatory_channel import (
     get_mandatory_channels,
     is_mandatory_channel_enabled,
@@ -158,4 +159,78 @@ async def settings_toggle_channel_cb(callback: CallbackQuery) -> None:
         text = await _channel_status_text(session)
     if callback.message is not None:
         await callback.message.edit_text(text, reply_markup=_channel_settings_keyboard(enabled=enabled))
+    await callback.answer()
+
+
+_REMINDER_DAYS_PROMPT_TEXT = "Send the number of days before expiry to send the reminder (e.g. 2):"
+_INVALID_DAYS_TEXT = "⚠️ Send a positive whole number of days."
+
+
+async def _reminder_status_text(session: AsyncSession) -> str:
+    enabled = (await get_config(session, "reminder_enabled")) != "false"
+    raw_days = await get_config(session, "reminder_days_before")
+    try:
+        days = int(raw_days) if raw_days else DEFAULT_DAYS_BEFORE
+    except ValueError:
+        days = DEFAULT_DAYS_BEFORE
+    state_line = "🟢 Enabled" if enabled else "🔴 Disabled"
+    return f"⏰ <b>Renewal Reminders</b>\n\nState: {state_line}\nWindow: {days} day(s) before expiry"
+
+
+def _reminder_settings_keyboard(*, enabled: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ Edit Days Before", callback_data="adm:settings:reminders:edit")
+    builder.button(
+        text="🔴 Turn Off" if enabled else "🟢 Turn On", callback_data="adm:settings:reminders:toggle"
+    )
+    builder.button(text="⬅️ Back to Settings", callback_data="adm:settings")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@router.callback_query(F.data == "adm:settings:reminders")
+async def settings_reminders_status_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    async with async_session_maker() as session:
+        enabled = (await get_config(session, "reminder_enabled")) != "false"
+        text = await _reminder_status_text(session)
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=_reminder_settings_keyboard(enabled=enabled))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:settings:reminders:edit")
+async def settings_edit_reminder_days_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(EditReminderStates.days_before)
+    if callback.message is not None:
+        await callback.message.edit_text(_REMINDER_DAYS_PROMPT_TEXT, reply_markup=settings_edit_cancel_keyboard())
+    await callback.answer()
+
+
+@router.message(EditReminderStates.days_before)
+async def settings_receive_reminder_days(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if not raw.isdigit() or int(raw) <= 0:
+        await message.answer(_INVALID_DAYS_TEXT, reply_markup=settings_edit_cancel_keyboard())
+        return
+    async with async_session_maker() as session:
+        await set_config(session, "reminder_days_before", raw)
+    await state.clear()
+    async with async_session_maker() as session:
+        enabled = (await get_config(session, "reminder_enabled")) != "false"
+        text = await _reminder_status_text(session)
+    await message.answer(
+        f"✅ Reminder window updated.\n\n{text}", reply_markup=_reminder_settings_keyboard(enabled=enabled)
+    )
+
+
+@router.callback_query(F.data == "adm:settings:reminders:toggle")
+async def settings_toggle_reminders_cb(callback: CallbackQuery) -> None:
+    async with async_session_maker() as session:
+        currently_enabled = (await get_config(session, "reminder_enabled")) != "false"
+        await set_config(session, "reminder_enabled", "false" if currently_enabled else "true")
+        enabled = not currently_enabled
+        text = await _reminder_status_text(session)
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=_reminder_settings_keyboard(enabled=enabled))
     await callback.answer()

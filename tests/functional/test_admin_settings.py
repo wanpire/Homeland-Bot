@@ -212,3 +212,104 @@ async def test_channel_toggle_flips_state(dispatcher: Any, bot: Any, fake_sessio
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "🟢 Turn On" in buttons
+
+
+@pytest.mark.asyncio
+async def test_admin_settings_menu_includes_renewal_reminders_button(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "⏰ Renewal Reminders" in buttons
+
+
+@pytest.mark.asyncio
+async def test_reminders_status_shows_enabled_and_default_days_when_unset(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:reminders"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    text = edited[0][1]["text"]
+    assert "enabled" in text.lower()
+    assert "2 day" in text.lower()
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "✏️ Edit Days Before" in buttons
+    assert "🔴 Turn Off" in buttons
+    assert any("back" in b.lower() for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_non_full_admin_cannot_access_reminders_settings(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.admin_users import add_admin
+
+    async with async_session_maker() as session:
+        await add_admin(session, 611, "sales")
+
+    await dispatcher.feed_update(bot, make_callback_update(611, "adm:settings:reminders"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert edited == []
+
+
+@pytest.mark.asyncio
+async def test_reminders_edit_sets_days_before(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.app_config import get_config
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:reminders:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "5"))
+
+    async with async_session_maker() as session:
+        assert await get_config(session, "reminder_days_before") == "5"
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert "updated" in sent[-1][1]["text"].lower()
+    assert "5 day" in sent[-1][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_reminders_edit_rejects_non_digit_input(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.app_config import get_config
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:reminders:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "abc"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("positive whole number" in c[1].get("text", "").lower() for c in sent)
+
+    async with async_session_maker() as session:
+        assert await get_config(session, "reminder_days_before") is None
+
+
+@pytest.mark.asyncio
+async def test_reminders_edit_rejects_zero(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:reminders:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "0"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("positive whole number" in c[1].get("text", "").lower() for c in sent)
+
+
+@pytest.mark.asyncio
+async def test_reminders_toggle_flips_state(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.app_config import get_config
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:reminders:toggle"))
+    async with async_session_maker() as session:
+        assert await get_config(session, "reminder_enabled") == "false"
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🟢 Turn On" in buttons
+
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:reminders:toggle"))
+    async with async_session_maker() as session:
+        assert await get_config(session, "reminder_enabled") == "true"
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🔴 Turn Off" in buttons
