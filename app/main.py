@@ -15,6 +15,7 @@ from app.bot.handlers import (
     broadcast, buy, fallback, myservices, renew, trial, tutorial_admin, users,
 )
 from app.bot.middlewares.blocked_user import BlockedUserMiddleware
+from app.bot.middlewares.mandatory_channel import MandatoryChannelMiddleware
 from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
 from app.bot.middlewares.user_tracking import UserTrackingMiddleware
 from app.config import get_settings
@@ -39,6 +40,7 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.update.outer_middleware(PrivateChatOnlyMiddleware())
     dp.update.outer_middleware(UserTrackingMiddleware())
     dp.update.outer_middleware(BlockedUserMiddleware())
+    dp.update.outer_middleware(MandatoryChannelMiddleware())
 
     dp.include_router(admin.router)
     dp.include_router(admin_admins.router)
