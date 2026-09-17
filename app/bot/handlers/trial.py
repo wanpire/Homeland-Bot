@@ -13,6 +13,7 @@ from app.db.session import async_session_maker
 from app.services.catalog import list_plans
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
+from app.services.trial_config import is_trial_enabled
 from app.services.tutorial_delivery import deliver_setup
 from app.services.tutorials import list_platforms, list_protocols
 from app.services.vpn_users import (
@@ -28,6 +29,7 @@ router = Router(name="trial")
 logger = logging.getLogger(__name__)
 
 _ALREADY_USED_TEXT = "🎁 You've already used your free trial."
+_TRIAL_DISABLED_TEXT = "🎁 Free trials are temporarily unavailable. Please check back soon."
 _CONFIRM_TEXT = "🎁 <b>Free Trial</b> — 24 hours, 1GB of data.\n\nStart your trial?"
 _CREATE_FAILED_TEXT = "⚠️ Couldn't create your trial right now. Please try again shortly."
 _CREDENTIALS_UNAVAILABLE_TEXT = (
@@ -106,6 +108,11 @@ async def _send_trial_credentials(bot: Bot, telegram_id: int) -> None:
 @router.callback_query(F.data == "menu:trial")
 async def trial_entry_cb(callback: CallbackQuery) -> None:
     async with async_session_maker() as session:
+        if not await is_trial_enabled(session):
+            if callback.message is not None:
+                await callback.message.edit_text(_TRIAL_DISABLED_TEXT, reply_markup=back_to_menu_keyboard())
+            await callback.answer()
+            return
         already_used = await has_used_trial(session, callback.from_user.id)
 
     if callback.message is None:
@@ -127,6 +134,11 @@ async def trial_confirm_cb(callback: CallbackQuery) -> None:
     # passing through trial_entry_cb's eligibility check. Re-check here
     # rather than trusting the path the user took to get here.
     async with async_session_maker() as session:
+        if not await is_trial_enabled(session):
+            if callback.message is not None:
+                await callback.message.edit_text(_TRIAL_DISABLED_TEXT, reply_markup=back_to_menu_keyboard())
+            await callback.answer()
+            return
         if await has_used_trial(session, telegram_id):
             if callback.message is not None:
                 await callback.message.edit_text(_ALREADY_USED_TEXT, reply_markup=back_to_menu_keyboard())

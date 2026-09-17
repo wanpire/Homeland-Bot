@@ -18,6 +18,7 @@ from app.db.session import async_session_maker
 from app.services.catalog import get_plan
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
+from app.services.trial_config import is_trial_enabled
 from app.services.tutorial_delivery import deliver_setup
 from app.services.tutorials import list_platforms, list_protocols
 from app.services.vpn_users import get_owned_vpn_user, get_service_status, list_services_with_status
@@ -41,7 +42,9 @@ async def myservices_list_cb(callback: CallbackQuery) -> None:
 
     if not rows:
         if callback.message is not None:
-            await callback.message.edit_text(_EMPTY_TEXT, reply_markup=myservices_empty_keyboard())
+            async with async_session_maker() as session:
+                trial_enabled = await is_trial_enabled(session)
+            await callback.message.edit_text(_EMPTY_TEXT, reply_markup=myservices_empty_keyboard(trial_enabled=trial_enabled))
         await callback.answer()
         return
 

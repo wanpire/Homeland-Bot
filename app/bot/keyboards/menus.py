@@ -7,17 +7,25 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def main_menu(*, is_admin: bool) -> InlineKeyboardMarkup:
+def main_menu(*, is_admin: bool, trial_enabled: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     sizes: list[int] = []
 
     builder.button(text="🔑 Buy Subscription", callback_data="menu:buy", style="success")
     builder.button(text="♻️ Renew Service", callback_data="menu:renew", style="success")
-    builder.button(text="🎁 Free Trial", callback_data="menu:trial", style="primary")
-    builder.button(text="🛍 My Services", callback_data="menu:myservices", style="primary")
+    sizes.append(2)
+
+    if trial_enabled:
+        builder.button(text="🎁 Free Trial", callback_data="menu:trial", style="primary")
+        builder.button(text="🛍 My Services", callback_data="menu:myservices", style="primary")
+        sizes.append(2)
+    else:
+        builder.button(text="🛍 My Services", callback_data="menu:myservices", style="primary")
+        sizes.append(1)
+
     builder.button(text="📚 Tutorials", callback_data="menu:tutorials", style="danger")
     builder.button(text="☎️ Support", callback_data="menu:support", style="danger")
-    sizes += [2, 2, 2]
+    sizes.append(2)
 
     if is_admin:
         builder.button(text="🛠 Admin Panel", callback_data="adm:root")

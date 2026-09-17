@@ -243,3 +243,55 @@ async def test_trial_credentials_ibsng_failure_tells_user_to_contact_support(
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert any("contact support" in c[1]["text"].lower() for c in sent)
+
+
+@pytest.mark.asyncio
+async def test_trial_entry_shows_unavailable_message_when_disabled(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.trial_config import set_trial_enabled
+
+    async with async_session_maker() as session:
+        await set_trial_enabled(session, False)
+
+    await dispatcher.feed_update(bot, make_callback_update(812, "menu:trial"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "unavailable" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_trial_confirm_blocked_when_disabled_even_via_old_button(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, ibsng_server: FakeIBSngServer
+) -> None:
+    """trial:confirm is a bare callback_data string, so an old message's
+    button (rendered before an admin disabled trials) can still reach this
+    handler without ever passing through trial_entry_cb - the same
+    defense-in-depth reasoning this file already applies to has_used_trial.
+    Must not provision an IBSng account."""
+    from app.services.trial_config import set_trial_enabled
+
+    async with async_session_maker() as session:
+        await set_trial_enabled(session, False)
+
+    await dispatcher.feed_update(bot, make_callback_update(813, "trial:confirm"))
+
+    assert ibsng_server.user_count() == 0
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "unavailable" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_trial_entry_works_normally_when_enabled(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.trial_config import set_trial_enabled
+
+    async with async_session_maker() as session:
+        await set_trial_enabled(session, True)
+
+    await dispatcher.feed_update(bot, make_callback_update(814, "menu:trial"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "unavailable" not in edited[0][1]["text"].lower()

@@ -329,3 +329,62 @@ async def test_reminders_toggle_flips_state(dispatcher: Any, bot: Any, fake_sess
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "🔴 Turn Off" in buttons
+
+
+@pytest.mark.asyncio
+async def test_admin_settings_menu_includes_free_trial_button(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🎁 Free Trial" in buttons
+
+
+@pytest.mark.asyncio
+async def test_trial_status_shows_enabled_by_default(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:trial"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    text = edited[0][1]["text"]
+    assert "enabled" in text.lower()
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🔴 Turn Off" in buttons
+    assert any("back" in b.lower() for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_non_full_admin_cannot_access_trial_settings(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.admin_users import add_admin
+
+    async with async_session_maker() as session:
+        await add_admin(session, 612, "sales")
+
+    await dispatcher.feed_update(bot, make_callback_update(612, "adm:settings:trial"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert edited == []
+
+
+@pytest.mark.asyncio
+async def test_trial_toggle_flips_state(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.trial_config import is_trial_enabled
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:trial:toggle"))
+    async with async_session_maker() as session:
+        assert await is_trial_enabled(session) is False
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🟢 Turn On" in buttons
+
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:trial:toggle"))
+    async with async_session_maker() as session:
+        assert await is_trial_enabled(session) is True
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🔴 Turn Off" in buttons
