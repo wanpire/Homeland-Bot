@@ -19,6 +19,7 @@ from app.bot.middlewares.mandatory_channel import MandatoryChannelMiddleware
 from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
 from app.bot.middlewares.user_tracking import UserTrackingMiddleware
 from app.config import get_settings
+from app.services.reminders import run_reminder_loop
 from app.webhook import create_webhook_app
 
 settings = get_settings()
@@ -94,10 +95,13 @@ async def main() -> None:
     await site.start()
     logger.info("Webhook server listening on :%s", settings.webhook_port)
 
+    reminder_task = asyncio.create_task(run_reminder_loop(bot))
+
     try:
         logger.info("Starting polling...")
         await dp.start_polling(bot)
     finally:
+        reminder_task.cancel()
         await runner.cleanup()
         await bot.session.close()
 
