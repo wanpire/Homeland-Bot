@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import re
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -75,13 +76,14 @@ _CHANNEL_PROMPT_TEXT = (
     "(e.g. homeland_channel, homeland_news). Send \"clear\" to remove all."
 )
 _EMPTY_CHANNELS_TEXT = "⚠️ Send a non-empty value."
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
 
 
 async def _channel_status_text(session: AsyncSession) -> str:
     channels = await get_mandatory_channels(session)
     enabled = await is_mandatory_channel_enabled(session)
     state_line = "🟢 Enabled" if enabled else "🔴 Disabled"
-    channels_line = ", ".join(f"@{c}" for c in channels) if channels else "(none set)"
+    channels_line = ", ".join(f"@{html.escape(c)}" for c in channels) if channels else "(none set)"
     return f"📢 <b>Mandatory Channel</b>\n\nState: {state_line}\nChannels: {channels_line}"
 
 
@@ -129,6 +131,15 @@ async def settings_receive_channels(message: Message, state: FSMContext) -> None
             usernames = [u.strip().lstrip("@") for u in raw.split(",") if u.strip()]
             if not usernames:
                 await message.answer(_EMPTY_CHANNELS_TEXT, reply_markup=settings_edit_cancel_keyboard())
+                return
+            invalid = [u for u in usernames if not _USERNAME_PATTERN.match(u)]
+            if invalid:
+                await message.answer(
+                    f"⚠️ Not a valid Telegram username: {html.escape(invalid[0])} "
+                    "(letters, numbers, underscores, 5-32 characters, starting with a letter). "
+                    "Send a channel username, not an ID or link.",
+                    reply_markup=settings_edit_cancel_keyboard(),
+                )
                 return
             await set_mandatory_channels(session, usernames)
     await state.clear()

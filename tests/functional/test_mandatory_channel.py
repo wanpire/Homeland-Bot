@@ -212,6 +212,33 @@ async def test_api_error_fails_open(
 
 
 @pytest.mark.asyncio
+async def test_recheck_tap_while_still_not_a_member_shows_alert_not_silence(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    await _enable_with_channels("homeland_channel")
+
+    async def _fake_get_chat_member(self: Bot, *, chat_id: str, user_id: int) -> SimpleNamespace:
+        return SimpleNamespace(status="left")
+
+    monkeypatch.setattr(Bot, "get_chat_member", _fake_get_chat_member)
+
+    # First tap: shows the join prompt.
+    await dispatcher.feed_update(bot, make_callback_update(999, "menu:root"))
+    # Second tap ("I've Joined", still not actually a member): must not
+    # crash, and must give the user visible feedback rather than a silent
+    # swallowed exception.
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(999, "menu:root"))
+
+    answered = [c for c in fake_session.calls if c[0] == "answerCallbackQuery"]
+    assert len(answered) == 1
+    assert "haven't joined" in answered[0][1].get("text", "").lower()
+    assert answered[0][1].get("show_alert") is True
+
+
+@pytest.mark.asyncio
 async def test_lists_only_missing_channels(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:

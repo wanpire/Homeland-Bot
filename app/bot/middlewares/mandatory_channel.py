@@ -4,7 +4,7 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 
 from app.bot.keyboards.mandatory_channel import join_channels_keyboard
@@ -41,9 +41,9 @@ class MandatoryChannelMiddleware(BaseMiddleware):
 
         user_id = inner.from_user.id
         async with async_session_maker() as session:
-            if await has_level(session, user_id, "support"):
-                return await handler(event, data)
             if not await is_mandatory_channel_enabled(session):
+                return await handler(event, data)
+            if await has_level(session, user_id, "support"):
                 return await handler(event, data)
             channels = await get_mandatory_channels(session)
             if not channels:
@@ -55,9 +55,12 @@ class MandatoryChannelMiddleware(BaseMiddleware):
 
         keyboard = join_channels_keyboard(missing)
         if isinstance(inner, CallbackQuery):
-            if inner.message is not None:
-                await inner.message.edit_text(_JOIN_PROMPT_TEXT, reply_markup=keyboard)
-            await inner.answer()
+            if isinstance(inner.message, Message):
+                try:
+                    await inner.message.edit_text(_JOIN_PROMPT_TEXT, reply_markup=keyboard)
+                except TelegramBadRequest:
+                    pass  # identical content (already showing the join prompt) or a stale/deleted message
+            await inner.answer("You haven't joined yet — please join, then tap again.", show_alert=True)
         else:
             await inner.answer(_JOIN_PROMPT_TEXT, reply_markup=keyboard)
         return None

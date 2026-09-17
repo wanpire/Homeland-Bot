@@ -154,6 +154,33 @@ async def test_channel_edit_rejects_empty_input(dispatcher: Any, bot: Any, fake_
 
 
 @pytest.mark.asyncio
+async def test_channel_edit_rejects_channel_id_instead_of_username(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.mandatory_channel import get_mandatory_channels
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "-1001234567890"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("not a valid" in c[1].get("text", "").lower() for c in sent)
+
+    async with async_session_maker() as session:
+        assert await get_mandatory_channels(session) == []
+
+
+@pytest.mark.asyncio
+async def test_channel_edit_rejects_url_instead_of_username(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "https://t.me/homeland_channel"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("not a valid" in c[1].get("text", "").lower() for c in sent)
+
+
+@pytest.mark.asyncio
 async def test_channel_edit_clear_removes_all(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     from app.services.mandatory_channel import get_mandatory_channels, set_mandatory_channels
 
