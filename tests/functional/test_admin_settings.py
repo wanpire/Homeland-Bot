@@ -296,6 +296,22 @@ async def test_reminders_edit_rejects_zero(dispatcher: Any, bot: Any, fake_sessi
 
 
 @pytest.mark.asyncio
+async def test_reminders_edit_rejects_out_of_range_value(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.app_config import get_config
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:reminders:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "9999"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("positive whole number" in c[1].get("text", "").lower() for c in sent)
+
+    async with async_session_maker() as session:
+        assert await get_config(session, "reminder_days_before") is None
+
+
+@pytest.mark.asyncio
 async def test_reminders_toggle_flips_state(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     from app.services.app_config import get_config
 

@@ -210,7 +210,15 @@ async def settings_edit_reminder_days_cb(callback: CallbackQuery, state: FSMCont
 @router.message(EditReminderStates.days_before)
 async def settings_receive_reminder_days(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
-    if not raw.isdigit() or int(raw) <= 0:
+    if not raw.isdigit():
+        await message.answer(_INVALID_DAYS_TEXT, reply_markup=settings_edit_cancel_keyboard())
+        return
+    try:
+        days = int(raw)
+    except ValueError:
+        await message.answer(_INVALID_DAYS_TEXT, reply_markup=settings_edit_cancel_keyboard())
+        return
+    if not (1 <= days <= 365):
         await message.answer(_INVALID_DAYS_TEXT, reply_markup=settings_edit_cancel_keyboard())
         return
     async with async_session_maker() as session:

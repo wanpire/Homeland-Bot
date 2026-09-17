@@ -219,6 +219,95 @@ async def test_one_users_send_failure_does_not_abort_the_batch(
 
 
 @pytest.mark.asyncio
+async def test_one_users_lookup_exception_does_not_abort_the_batch(
+    bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-IBSngError exception from get_service_status (malformed
+    XML-RPC response, unexpected payload shape, ...) for one candidate
+    must not kill the loop and skip every remaining candidate."""
+    from app.services import reminders
+    from app.services.reminders import send_due_reminders
+
+    await _seed_vpn_user(720)
+    await _seed_vpn_user(721)
+    expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+
+    async def _fake_get_service_status(client: object, username: str) -> tuple[str, dt.datetime | None]:
+        if username == "hl.rem720":
+            raise RuntimeError("malformed XML-RPC response")
+        return "active", expiry
+
+    monkeypatch.setattr(reminders, "get_service_status", _fake_get_service_status)
+
+    await send_due_reminders(bot)
+
+    sent = _sent(fake_session)
+    assert len(sent) == 1
+    assert sent[0][1]["chat_id"] == 721
+
+
+@pytest.mark.asyncio
+async def test_absurdly_large_days_before_does_not_crash_the_job(
+    bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.app_config import set_config
+    from app.services.reminders import send_due_reminders
+
+    await _seed_vpn_user(722)
+    expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    _patch_status(monkeypatch, "active", expiry)
+    async with async_session_maker() as session:
+        await set_config(session, "reminder_days_before", "999999999999")
+
+    await send_due_reminders(bot)  # must not raise OverflowError
+
+    assert len(_sent(fake_session)) == 1
+
+
+@pytest.mark.asyncio
+async def test_blocked_user_does_not_receive_reminder(
+    bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db.models.bot_user import BotUser
+
+    from app.services.reminders import send_due_reminders
+
+    await _seed_vpn_user(723)
+    await _seed_vpn_user(724)
+    expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    _patch_status(monkeypatch, "active", expiry)
+
+    async with async_session_maker() as session:
+        session.add(BotUser(telegram_id=723, is_blocked=True))
+        await session.commit()
+
+    await send_due_reminders(bot)
+
+    sent = _sent(fake_session)
+    assert len(sent) == 1
+    assert sent[0][1]["chat_id"] == 724
+
+
+@pytest.mark.asyncio
+async def test_expired_status_stamps_reminder_sent_at_without_sending(
+    bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db.models.vpn_user import VPNUser
+    from app.services.reminders import send_due_reminders
+
+    await _seed_vpn_user(725)
+    expiry = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
+    _patch_status(monkeypatch, "expired", expiry)
+
+    await send_due_reminders(bot)
+
+    assert _sent(fake_session) == []
+    async with async_session_maker() as session:
+        vpn_user = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 725))).scalar_one()
+    assert vpn_user.expiry_reminder_sent_at is not None
+
+
+@pytest.mark.asyncio
 async def test_run_reminder_loop_calls_send_due_reminders_each_iteration(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import reminders
 

@@ -10,6 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.bot_user import BotUser
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.services.app_config import get_config
@@ -40,18 +41,29 @@ async def _reminder_window(session: AsyncSession) -> dt.timedelta:
         days = int(raw) if raw else DEFAULT_DAYS_BEFORE
     except ValueError:
         days = DEFAULT_DAYS_BEFORE
-    return dt.timedelta(days=days)
+    # Clamp to a sane range: a validated-but-absurd admin input (e.g.
+    # 10**12) would otherwise reach dt.timedelta(days=...) and raise
+    # OverflowError, silently killing every future pass of the job.
+    return dt.timedelta(days=min(max(days, 1), 365))
 
 
 async def send_due_reminders(bot: Bot) -> None:
-    """One pass: for every non-trial VPNUser not yet reminded this cycle,
-    ask IBSng (via get_service_status, which already handles every parse/
-    API-failure edge case) for its live expiry, and send the reminder if
-    it falls within the admin-configured window. Safe to call repeatedly -
+    """One pass: for every non-trial, non-blocked VPNUser not yet reminded
+    this cycle, ask IBSng for its live expiry and send the reminder if it
+    falls within the admin-configured window. get_service_status only
+    catches IBSngError internally - any other exception (malformed
+    XML-RPC response, unexpected payload shape, ...) propagates, so each
+    candidate's lookup is wrapped in its own try/except below; that is
+    what isolates one bad row from aborting the rest of the batch, not
+    get_service_status itself. Safe to call repeatedly -
     expiry_reminder_sent_at (cleared on renewal by renew_and_change_group)
-    makes it idempotent per expiry cycle. Trial accounts are excluded -
-    they aren't renewable, so a "renew via the bot" reminder wouldn't
-    make sense for them."""
+    makes it idempotent per expiry cycle. An "expired" candidate gets
+    stamped without a message, so an account that lapses without ever
+    getting a reminder sent doesn't stay a permanent candidate re-queried
+    forever. Trial accounts are excluded - they aren't renewable, so a
+    "renew via the bot" reminder wouldn't make sense for them. Blocked
+    users are excluded too, matching the same rule broadcast.py's
+    _list_broadcast_recipients established for outbound messaging."""
     async with async_session_maker() as session:
         enabled_raw = await get_config(session, "reminder_enabled")
         if enabled_raw == "false":
@@ -62,8 +74,12 @@ async def send_due_reminders(bot: Bot) -> None:
         candidates = (
             await session.execute(
                 select(VPNUser).where(
-                    VPNUser.expiry_reminder_sent_at.is_(None), VPNUser.is_trial.is_(False)
-                )
+                    VPNUser.expiry_reminder_sent_at.is_(None),
+                    VPNUser.is_trial.is_(False),
+                    ~select(BotUser.id)
+                    .where(BotUser.telegram_id == VPNUser.telegram_id, BotUser.is_blocked.is_(True))
+                    .exists(),
+                ).order_by(VPNUser.id)
             )
         ).scalars().all()
         if not candidates:
@@ -72,7 +88,24 @@ async def send_due_reminders(bot: Bot) -> None:
         now = dt.datetime.now(dt.timezone.utc)
         async with IBSngClient() as client:
             for vpn_user in candidates:
-                status, expiry = await get_service_status(client, vpn_user.ibsng_username)
+                try:
+                    status, expiry = await get_service_status(client, vpn_user.ibsng_username)
+                except Exception:
+                    logger.exception(
+                        "Failed to look up IBSng status for ibsng_username=%s", vpn_user.ibsng_username
+                    )
+                    continue
+                if status == "expired":
+                    # Self-healing: renew_and_change_group clears this stamp
+                    # back to None the moment the customer actually renews,
+                    # so they immediately become eligible again. Without
+                    # this, an account that lapses without ever getting a
+                    # reminder sent (bot downtime, feature toggled off, a
+                    # send failure) stays a permanent candidate, re-queried
+                    # and re-looked-up against IBSng every pass forever.
+                    vpn_user.expiry_reminder_sent_at = now
+                    await session.commit()
+                    continue
                 if status != "active" or expiry is None:
                     continue
                 if not (dt.timedelta(0) < (expiry - now) <= window):
