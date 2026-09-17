@@ -57,6 +57,39 @@ async def test_myservices_empty_state_hides_trial_button_when_disabled(
 
 
 @pytest.mark.asyncio
+async def test_existing_trial_users_service_still_lists_when_trial_disabled(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+) -> None:
+    """trial_enabled=False must only gate NEW trial signups - a customer
+    who already has a trial VPNUser row keeps full access to their
+    existing service (list, view, resend setup) exactly as before."""
+    from app.services.trial_config import set_trial_enabled
+
+    telegram_id = 704
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trial", name="Trial", is_trial=True)
+    future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
+    ibsng_server.set_user_attr(service.ibsng_username, "nearest_exp_date", future)
+
+    async with async_session_maker() as session:
+        await set_trial_enabled(session, False)
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    texts = [b["text"] for b in buttons]
+    assert any(t.startswith("Trial — ✅ Active") for t in texts)
+
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "not found" not in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_myservices_lists_services_with_status_badges(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
 ) -> None:
