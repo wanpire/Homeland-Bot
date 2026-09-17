@@ -19,6 +19,8 @@ def admin_root_menu(*, is_sales_admin: bool, is_full_admin: bool) -> InlineKeybo
         # zero feedback (Telegram just spins forever).
         builder.button(text="📢 Broadcast", callback_data="adm:broadcast")
         sizes.append(1)
+        builder.button(text="👥 Manage Admins", callback_data="adm:admins")
+        sizes.append(1)
         builder.button(text="⚙️ Settings", callback_data="adm:settings")
         sizes.append(1)
     builder.button(text="⬅️ Back to Menu", callback_data="menu:root")

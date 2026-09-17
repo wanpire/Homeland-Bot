@@ -27,3 +27,38 @@ async def has_level(session: AsyncSession, telegram_id: int, min_level: str) -> 
 
 async def list_admins(session: AsyncSession) -> list[AdminUser]:
     return list((await session.execute(select(AdminUser))).scalars().all())
+
+
+async def get_admin(session: AsyncSession, telegram_id: int) -> AdminUser | None:
+    return (
+        await session.execute(select(AdminUser).where(AdminUser.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+
+
+async def add_admin(session: AsyncSession, telegram_id: int, level: str) -> AdminUser:
+    admin = AdminUser(telegram_id=telegram_id, level=level)
+    session.add(admin)
+    await session.commit()
+    await session.refresh(admin)
+    return admin
+
+
+async def remove_admin(session: AsyncSession, telegram_id: int) -> None:
+    admin = await get_admin(session, telegram_id)
+    if admin is None:
+        return
+    await session.delete(admin)
+    await session.commit()
+
+
+async def is_last_full_admin(session: AsyncSession, telegram_id: int) -> bool:
+    """True only if removing this telegram_id's DB "full" admin row would
+    leave zero full-level access anywhere. A bootstrap admin from
+    ADMIN_IDS always has full access regardless of DB state, so any
+    configured bootstrap admin already makes this safe."""
+    settings = get_settings()
+    if settings.admin_id_list:
+        return False
+    admins = await list_admins(session)
+    remaining_full = [a for a in admins if a.level == "full" and a.telegram_id != telegram_id]
+    return len(remaining_full) == 0
