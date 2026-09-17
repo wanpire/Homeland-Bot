@@ -4,16 +4,24 @@ import html
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters.admin import IsFullAdmin
 from app.bot.keyboards.admin_settings import back_to_settings_keyboard, settings_edit_cancel_keyboard
-from app.bot.states.admin_settings import EditSupportStates
+from app.bot.states.admin_settings import EditMandatoryChannelStates, EditSupportStates
 from app.db.session import async_session_maker
 from app.services.app_config import set_config
 from app.services.groups import sync_groups
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
+from app.services.mandatory_channel import (
+    get_mandatory_channels,
+    is_mandatory_channel_enabled,
+    set_mandatory_channel_enabled,
+    set_mandatory_channels,
+)
 
 router = Router(name="admin_settings")
 router.message.filter(IsFullAdmin())
@@ -59,4 +67,84 @@ async def settings_sync_groups_cb(callback: CallbackQuery) -> None:
         await callback.message.edit_text(
             f"🔄 Synced {len(groups)} Homeland group(s).", reply_markup=back_to_settings_keyboard()
         )
+    await callback.answer()
+
+
+_CHANNEL_PROMPT_TEXT = (
+    "Send the channel username(s) to require, comma-separated, without @ "
+    "(e.g. homeland_channel, homeland_news). Send \"clear\" to remove all."
+)
+_EMPTY_CHANNELS_TEXT = "⚠️ Send a non-empty value."
+
+
+async def _channel_status_text(session: AsyncSession) -> str:
+    channels = await get_mandatory_channels(session)
+    enabled = await is_mandatory_channel_enabled(session)
+    state_line = "🟢 Enabled" if enabled else "🔴 Disabled"
+    channels_line = ", ".join(f"@{c}" for c in channels) if channels else "(none set)"
+    return f"📢 <b>Mandatory Channel</b>\n\nState: {state_line}\nChannels: {channels_line}"
+
+
+def _channel_settings_keyboard(*, enabled: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ Edit Channels", callback_data="adm:settings:channel:edit")
+    builder.button(
+        text="🔴 Turn Off" if enabled else "🟢 Turn On", callback_data="adm:settings:channel:toggle"
+    )
+    builder.button(text="⬅️ Back to Settings", callback_data="adm:settings")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@router.callback_query(F.data == "adm:settings:channel")
+async def settings_channel_status_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    async with async_session_maker() as session:
+        enabled = await is_mandatory_channel_enabled(session)
+        text = await _channel_status_text(session)
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=_channel_settings_keyboard(enabled=enabled))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:settings:channel:edit")
+async def settings_edit_channel_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(EditMandatoryChannelStates.channels)
+    if callback.message is not None:
+        async with async_session_maker() as session:
+            text = await _channel_status_text(session)
+        await callback.message.edit_text(
+            f"{text}\n\n{_CHANNEL_PROMPT_TEXT}", reply_markup=settings_edit_cancel_keyboard()
+        )
+    await callback.answer()
+
+
+@router.message(EditMandatoryChannelStates.channels)
+async def settings_receive_channels(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    async with async_session_maker() as session:
+        if raw.lower() == "clear":
+            await set_mandatory_channels(session, [])
+        else:
+            usernames = [u.strip().lstrip("@") for u in raw.split(",") if u.strip()]
+            if not usernames:
+                await message.answer(_EMPTY_CHANNELS_TEXT, reply_markup=settings_edit_cancel_keyboard())
+                return
+            await set_mandatory_channels(session, usernames)
+    await state.clear()
+    async with async_session_maker() as session:
+        enabled = await is_mandatory_channel_enabled(session)
+        text = await _channel_status_text(session)
+    await message.answer(f"✅ Channels updated.\n\n{text}", reply_markup=_channel_settings_keyboard(enabled=enabled))
+
+
+@router.callback_query(F.data == "adm:settings:channel:toggle")
+async def settings_toggle_channel_cb(callback: CallbackQuery) -> None:
+    async with async_session_maker() as session:
+        currently_enabled = await is_mandatory_channel_enabled(session)
+        await set_mandatory_channel_enabled(session, not currently_enabled)
+        enabled = not currently_enabled
+        text = await _channel_status_text(session)
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=_channel_settings_keyboard(enabled=enabled))
     await callback.answer()

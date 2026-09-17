@@ -5,3 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 class EditSupportStates(StatesGroup):
     support_username = State()
+
+
+class EditMandatoryChannelStates(StatesGroup):
+    channels = State()

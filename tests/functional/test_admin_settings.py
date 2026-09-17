@@ -84,3 +84,104 @@ async def test_sync_groups_reports_count_and_excludes_alobot_groups(dispatcher: 
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert f"synced {len(groups)}" in edited[-1][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_channel_status_shows_disabled_by_default(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    text = edited[0][1]["text"]
+    assert "disabled" in text.lower()
+    assert "none set" in text.lower()
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "✏️ Edit Channels" in buttons
+    assert "🟢 Turn On" in buttons
+    assert any("back" in b.lower() for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_non_full_admin_cannot_access_channel_settings(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.admin_users import add_admin
+
+    async with async_session_maker() as session:
+        await add_admin(session, 601, "sales")
+
+    await dispatcher.feed_update(bot, make_callback_update(601, "adm:settings:channel"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert edited == []
+
+
+@pytest.mark.asyncio
+async def test_admin_settings_menu_includes_mandatory_channel_button(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "📢 Mandatory Channel" in buttons
+
+
+@pytest.mark.asyncio
+async def test_channel_edit_flow_sets_channels(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.mandatory_channel import get_mandatory_channels
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "homeland_channel, homeland_news"))
+
+    async with async_session_maker() as session:
+        assert await get_mandatory_channels(session) == ["homeland_channel", "homeland_news"]
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert "updated" in sent[-1][1]["text"].lower()
+    assert "homeland_channel" in sent[-1][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_channel_edit_rejects_empty_input(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "   "))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("non-empty" in c[1].get("text", "").lower() for c in sent)
+
+
+@pytest.mark.asyncio
+async def test_channel_edit_clear_removes_all(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.mandatory_channel import get_mandatory_channels, set_mandatory_channels
+
+    async with async_session_maker() as session:
+        await set_mandatory_channels(session, ["homeland_channel"])
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel:edit"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "clear"))
+
+    async with async_session_maker() as session:
+        assert await get_mandatory_channels(session) == []
+
+
+@pytest.mark.asyncio
+async def test_channel_toggle_flips_state(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.mandatory_channel import is_mandatory_channel_enabled
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel:toggle"))
+    async with async_session_maker() as session:
+        assert await is_mandatory_channel_enabled(session) is True
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🔴 Turn Off" in buttons
+
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:channel:toggle"))
+    async with async_session_maker() as session:
+        assert await is_mandatory_channel_enabled(session) is False
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🟢 Turn On" in buttons
