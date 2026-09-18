@@ -26,6 +26,7 @@ async def test_start_shows_english_main_menu(dispatcher: Any, bot: Any, fake_ses
         "🛍 My Services",
         "📚 Tutorials",
         "☎️ Support",
+        "🌐 Language",
     ]
 
 
@@ -103,3 +104,13 @@ async def test_unrecognized_message_falls_back_to_main_menu(dispatcher: Any, bot
     sent = [call for call in fake_session.calls if call[0] == "sendMessage"]
     assert len(sent) == 1
     assert "Welcome to Homeland" in sent[0][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_main_menu_includes_language_button(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    update = make_message_update(999, "/start")
+    await dispatcher.feed_update(bot, update)
+
+    _, data = [call for call in fake_session.calls if call[0] == "sendMessage"][0]
+    buttons = [btn["text"] for row in data["reply_markup"]["inline_keyboard"] for btn in row]
+    assert "🌐 Language" in buttons

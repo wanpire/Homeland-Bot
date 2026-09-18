@@ -9,7 +9,6 @@ from typing import Any
 
 import pytest
 
-from app.bot.handlers.users import WELCOME_TEXT
 from app.db.session import async_session_maker
 from app.services.bot_users import block_user
 from tests.factories import (
@@ -41,7 +40,7 @@ async def test_blocked_user_start_never_reaches_the_handler(
 
     sent = [call for call in fake_session.calls if call[0] == "sendMessage"]
     assert len(sent) == 1
-    assert WELCOME_TEXT not in sent[0][1]["text"]
+    assert "Welcome to Homeland" not in sent[0][1]["text"]
     assert _BLOCKED_SNIPPET in sent[0][1]["text"]
 
 
@@ -131,7 +130,7 @@ async def test_admin_ui_toggle_actually_gates_a_real_update_end_to_end(
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "join" in edited[0][1]["text"].lower()
-    assert WELCOME_TEXT not in edited[0][1]["text"]
+    assert "Welcome to Homeland" not in edited[0][1]["text"]
 
 
 @pytest.mark.asyncio

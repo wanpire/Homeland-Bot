@@ -249,6 +249,32 @@ def _reset_ibsng(ibsng_server: FakeIBSngServer) -> Generator[None, None, None]:
 
 
 @pytest_asyncio.fixture(autouse=True)
+async def _default_test_language(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[None, None]:
+    """LanguageMiddleware gates every update behind BotUser.language being
+    set - a fresh BotUser row (the default for every test unless a test
+    seeds otherwise) would make every existing dispatcher-driven test in
+    the whole suite hit the language chooser instead of its real target.
+    Rather than retrofit hundreds of call sites, default language
+    resolution to "en" here, in the test environment only - matching this
+    project's ibsng_server-fixture precedent of faking cross-cutting
+    external state instead of touching production code. A test that needs
+    to exercise the REAL chooser-gating behavior re-monkeypatches the
+    unwrapped get_language back on top of this, within its own body, using
+    the same `monkeypatch` fixture instance (a later setattr call safely
+    overwrites this one for the rest of that single test)."""
+    import app.bot.middlewares.language as language_mw
+
+    original_get_language = language_mw.get_language
+
+    async def _get_language_default_en(session: Any, telegram_id: int) -> str:
+        result = await original_get_language(session, telegram_id)
+        return result if result is not None else "en"
+
+    monkeypatch.setattr(language_mw, "get_language", _get_language_default_en)
+    yield
+
+
+@pytest_asyncio.fixture(autouse=True)
 async def _reset_dispatcher_fsm_storage(dispatcher: Any) -> AsyncGenerator[None, None]:
     """The `dispatcher` fixture is session-scoped (aiogram Routers refuse
     to attach to a second Dispatcher), so its MemoryStorage outlives
