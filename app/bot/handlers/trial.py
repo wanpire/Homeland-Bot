@@ -10,6 +10,7 @@ from app.bot.keyboards.trial import back_to_menu_keyboard, trial_confirm_keyboar
 from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
+from app.i18n.texts import t
 from app.services.catalog import list_plans
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
@@ -27,17 +28,10 @@ router = Router(name="trial")
 
 logger = logging.getLogger(__name__)
 
-_ALREADY_USED_TEXT = "🎁 You've already used your free trial."
-_CONFIRM_TEXT = "🎁 <b>Free Trial</b> — 24 hours, 1GB of data.\n\nStart your trial?"
-_CREATE_FAILED_TEXT = "⚠️ Couldn't create your trial right now. Please try again shortly."
-_CREDENTIALS_UNAVAILABLE_TEXT = (
-    "⚠️ Your trial account was created, but we couldn't retrieve your "
-    "credentials right now. Please contact support and they'll send them to you."
-)
 _MAX_CREATE_ATTEMPTS = 3
 
 
-async def _send_trial_credentials(bot: Bot, telegram_id: int) -> None:
+async def _send_trial_credentials(bot: Bot, telegram_id: int, lang: str) -> None:
     """deliver_setup (Task 3) deliberately does NOT send the account's
     username/password - it's a generic (platform, protocol) -> content
     function reused later by Buy/Renew, which won't always want the
@@ -75,15 +69,11 @@ async def _send_trial_credentials(bot: Bot, telegram_id: int) -> None:
                 vpn_user.ibsng_username,
                 telegram_id,
             )
-            await bot.send_message(telegram_id, _CREDENTIALS_UNAVAILABLE_TEXT)
+            await bot.send_message(telegram_id, t("trial_credentials_unavailable", lang))
             return
 
         await bot.send_message(
-            telegram_id,
-            "🎁 <b>Your trial is ready.</b>\n\n"
-            f"Username: <code>{vpn_user.ibsng_username}</code>\n"
-            f"Password: <code>{password}</code>\n\n"
-            "⏱ Valid for 24 hours from first connection.",
+            telegram_id, t("trial_ready", lang, username=vpn_user.ibsng_username, password=password)
         )
     except Exception:
         # The account exists but we couldn't hand over its credentials.
@@ -98,13 +88,13 @@ async def _send_trial_credentials(bot: Bot, telegram_id: int) -> None:
             telegram_id,
         )
         try:
-            await bot.send_message(telegram_id, _CREDENTIALS_UNAVAILABLE_TEXT)
+            await bot.send_message(telegram_id, t("trial_credentials_unavailable", lang))
         except Exception:
             logger.exception("Could not deliver the credentials-unavailable message to telegram_id=%s", telegram_id)
 
 
 @router.callback_query(F.data == "menu:trial")
-async def trial_entry_cb(callback: CallbackQuery) -> None:
+async def trial_entry_cb(callback: CallbackQuery, lang: str) -> None:
     async with async_session_maker() as session:
         already_used = await has_used_trial(session, callback.from_user.id)
 
@@ -112,14 +102,14 @@ async def trial_entry_cb(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     if already_used:
-        await callback.message.edit_text(_ALREADY_USED_TEXT, reply_markup=back_to_menu_keyboard())
+        await callback.message.edit_text(t("trial_already_used", lang), reply_markup=back_to_menu_keyboard(lang))
     else:
-        await callback.message.edit_text(_CONFIRM_TEXT, reply_markup=trial_confirm_keyboard())
+        await callback.message.edit_text(t("trial_confirm_prompt", lang), reply_markup=trial_confirm_keyboard(lang))
     await callback.answer()
 
 
 @router.callback_query(F.data == "trial:confirm")
-async def trial_confirm_cb(callback: CallbackQuery) -> None:
+async def trial_confirm_cb(callback: CallbackQuery, lang: str) -> None:
     telegram_id = callback.from_user.id
 
     # "trial:confirm" is a bare callback_data string: an old message's
@@ -129,7 +119,7 @@ async def trial_confirm_cb(callback: CallbackQuery) -> None:
     async with async_session_maker() as session:
         if await has_used_trial(session, telegram_id):
             if callback.message is not None:
-                await callback.message.edit_text(_ALREADY_USED_TEXT, reply_markup=back_to_menu_keyboard())
+                await callback.message.edit_text(t("trial_already_used", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
 
@@ -171,31 +161,29 @@ async def trial_confirm_cb(callback: CallbackQuery) -> None:
             # and "ibsng" (a real IBSng failure) are transient - telling
             # an eligible user their trial was "already used" in those
             # cases would be flatly wrong.
-            text = _ALREADY_USED_TEXT if last_error == "trial_used" else _CREATE_FAILED_TEXT
-            await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
+            text = t("trial_already_used", lang) if last_error == "trial_used" else t("trial_create_failed", lang)
+            await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard(lang))
         await callback.answer()
         return
 
     async with async_session_maker() as session:
         protocols = await list_protocols(session)
     if callback.message is not None:
-        await callback.message.edit_text(
-            "🔌 Which protocol do you want to use?", reply_markup=trial_protocol_keyboard(protocols)
-        )
+        await callback.message.edit_text(t("protocol_prompt", lang), reply_markup=trial_protocol_keyboard(protocols, lang))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("trial:protocol:"))
-async def trial_protocol_cb(callback: CallbackQuery) -> None:
+async def trial_protocol_cb(callback: CallbackQuery, lang: str) -> None:
     protocol_id = int(callback.data.split(":")[-1])
     async with async_session_maker() as session:
         protocol = await session.get(TutorialProtocol, protocol_id)
 
     if protocol is not None and protocol.label.strip().lower() == "openvpn":
         async with async_session_maker() as session:
-            delivered, _ = await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=protocol_id, platform_id=None)
+            delivered, _ = await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=protocol_id, platform_id=None, lang=lang)
         if delivered:
-            await _send_trial_credentials(callback.bot, callback.from_user.id)
+            await _send_trial_credentials(callback.bot, callback.from_user.id, lang)
         await callback.answer()
         return
 
@@ -203,30 +191,30 @@ async def trial_protocol_cb(callback: CallbackQuery) -> None:
         platforms = await list_platforms(session)
     if callback.message is not None:
         await callback.message.edit_text(
-            "📱 Which device do you want to set it up on?",
-            reply_markup=trial_platform_keyboard(platforms),
+            t("platform_prompt", lang),
+            reply_markup=trial_platform_keyboard(platforms, lang),
         )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("trial:platform:"))
-async def trial_platform_cb(callback: CallbackQuery) -> None:
+async def trial_platform_cb(callback: CallbackQuery, lang: str) -> None:
     platform_id = int(callback.data.split(":")[-1])
     async with async_session_maker() as session:
         protocols = await list_protocols(session)
     l2tp = next(p for p in protocols if p.label.strip().lower() == "l2tp")
 
     async with async_session_maker() as session:
-        delivered, _ = await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=l2tp.id, platform_id=platform_id)
+        delivered, _ = await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=l2tp.id, platform_id=platform_id, lang=lang)
     if delivered:
-        await _send_trial_credentials(callback.bot, callback.from_user.id)
+        await _send_trial_credentials(callback.bot, callback.from_user.id, lang)
     await callback.answer()
 
 
 @router.callback_query(F.data == "trial:back_to_protocol")
-async def trial_back_to_protocol_cb(callback: CallbackQuery) -> None:
+async def trial_back_to_protocol_cb(callback: CallbackQuery, lang: str) -> None:
     async with async_session_maker() as session:
         protocols = await list_protocols(session)
     if callback.message is not None:
-        await callback.message.edit_text("🔌 Which protocol do you want to use?", reply_markup=trial_protocol_keyboard(protocols))
+        await callback.message.edit_text(t("protocol_prompt", lang), reply_markup=trial_protocol_keyboard(protocols, lang))
     await callback.answer()

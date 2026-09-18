@@ -297,3 +297,56 @@ async def test_trial_confirm_still_blocked_when_limit_explicitly_enabled(
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "already used" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_trial_entry_shows_persian_confirm_for_persian_user(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.bot_users import record_seen, set_language
+
+    async with async_session_maker() as session:
+        await record_seen(session, 820, None)
+        await set_language(session, 820, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(820, "menu:trial"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "تست رایگان" in edited[0][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_trial_entry_shows_already_used_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.db.models.vpn_user import VPNUser
+    from app.services.bot_users import record_seen, set_language
+
+    async with async_session_maker() as session:
+        session.add(VPNUser(telegram_id=821, ibsng_username="hl.faused1", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
+        await record_seen(session, 821, None)
+        await set_language(session, 821, "fa")
+        await session.commit()
+
+    await dispatcher.feed_update(bot, make_callback_update(821, "menu:trial"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "قبلاً" in edited[0][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_trial_ready_credentials_render_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from sqlalchemy import select as sa_select
+
+    from app.db.models.tutorial_protocol import TutorialProtocol
+    from app.services.bot_users import record_seen, set_language
+
+    async with async_session_maker() as session:
+        await record_seen(session, 822, None)
+        await set_language(session, 822, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(822, "trial:confirm"))
+    async with async_session_maker() as session:
+        openvpn_id = (await session.execute(sa_select(TutorialProtocol).where(TutorialProtocol.label == "OpenVPN"))).scalar_one().id
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(822, f"trial:protocol:{openvpn_id}"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("تست رایگان شما آماده است" in c[1]["text"] for c in sent)
