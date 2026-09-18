@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.plan import Plan
+from app.i18n.texts import t
 
 CATEGORIES = ("scroll", "stream", "trial")
 
@@ -55,3 +56,24 @@ def format_data_cap(data_cap_mb: int) -> str:
     if data_cap_mb % 1024 == 0:
         return f"{data_cap_mb // 1024} GB"
     return f"{data_cap_mb} MB"
+
+
+_PLAN_NAME_KEYS = {
+    "Trial": "plan_name_trial",
+    "2 Weeks": "plan_name_2weeks",
+    "1 Month": "plan_name_1month",
+    "2 Months": "plan_name_2months",
+    "3 Months": "plan_name_3months",
+}
+
+_CATEGORY_KEYS = {"scroll": "category_scroll", "stream": "category_stream", "trial": "category_trial"}
+
+
+def plan_display_name(plan: Plan, lang: str) -> str:
+    key = _PLAN_NAME_KEYS.get(plan.name)
+    return t(key, lang) if key is not None else plan.name
+
+
+def category_display_name(category: str, lang: str) -> str:
+    key = _CATEGORY_KEYS.get(category)
+    return t(key, lang) if key is not None else category.title()

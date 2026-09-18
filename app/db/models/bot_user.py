@@ -20,3 +20,4 @@ class BotUser(Base):
     username: Mapped[str | None] = mapped_column(String(32), nullable=True)
     first_seen_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    language: Mapped[str | None] = mapped_column(String(8), nullable=True)

@@ -45,3 +45,19 @@ async def block_user(session: AsyncSession, telegram_id: int, blocked: bool = Tr
 
 async def list_bot_user_ids(session: AsyncSession) -> list[int]:
     return [row[0] for row in (await session.execute(select(BotUser.telegram_id))).all()]
+
+
+async def get_language(session: AsyncSession, telegram_id: int) -> str | None:
+    row = (
+        await session.execute(select(BotUser).where(BotUser.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+    return row.language if row is not None else None
+
+
+async def set_language(session: AsyncSession, telegram_id: int, language: str) -> None:
+    row = (
+        await session.execute(select(BotUser).where(BotUser.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+    if row is not None:
+        row.language = language
+        await session.commit()

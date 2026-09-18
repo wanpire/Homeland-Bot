@@ -138,3 +138,38 @@ def test_format_data_cap() -> None:
     assert format_data_cap(5120) == "5 GB"
     assert format_data_cap(10240) == "10 GB"
     assert format_data_cap(1536) == "1536 MB"
+
+
+@pytest.mark.asyncio
+async def test_plan_display_name_translates_known_names() -> None:
+    from app.services.catalog import plan_display_name, list_plans
+
+    async with async_session_maker() as session:
+        plans = await list_plans(session)
+    trial_plan = next(p for p in plans if p.category == "trial")
+
+    assert plan_display_name(trial_plan, "en") == "Trial"
+    assert plan_display_name(trial_plan, "fa") == "تست رایگان"
+
+
+def test_plan_display_name_falls_back_to_raw_name_for_unknown_plan() -> None:
+    from app.db.models.plan import Plan
+    from app.services.catalog import plan_display_name
+
+    fake_plan = Plan(name="Custom Weird Plan", category="scroll", duration_days=1, data_cap_mb=1, price_usd="1.00", group_name="x", sort_order=0)
+    assert plan_display_name(fake_plan, "en") == "Custom Weird Plan"
+    assert plan_display_name(fake_plan, "fa") == "Custom Weird Plan"
+
+
+def test_category_display_name_translates_known_categories() -> None:
+    from app.services.catalog import category_display_name
+
+    assert category_display_name("scroll", "en") == "📜 Scroll"
+    assert category_display_name("scroll", "fa") == "📜 اسکرول"
+    assert category_display_name("stream", "en") == "🌊 Stream"
+
+
+def test_category_display_name_falls_back_to_title_case_for_unknown_category() -> None:
+    from app.services.catalog import category_display_name
+
+    assert category_display_name("weird", "en") == "Weird"
