@@ -487,3 +487,37 @@ async def test_renew_price_summary_shows_crypto_button(
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "₿ Pay with Crypto" in buttons
     assert "✅ Renew" not in buttons
+
+
+@pytest.mark.asyncio
+async def test_renew_empty_state_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.bot_users import record_seen, set_language
+
+    async with async_session_maker() as session:
+        await record_seen(session, 840, None)
+        await set_language(session, 840, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(840, "menu:renew"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "تمدید سرویس" in edited[0][1]["text"]
+    assert "ندارید" in edited[0][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_renew_summary_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict) -> None:
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 841
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    new_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:{new_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "تمدید" in edited[0][1]["text"]
+    assert "قیمت:" in edited[0][1]["text"]

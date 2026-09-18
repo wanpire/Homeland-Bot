@@ -18,7 +18,8 @@ from app.bot.keyboards.trial import back_to_menu_keyboard
 from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
-from app.services.catalog import CATEGORIES, format_data_cap, format_price_usd, get_plan, list_plans
+from app.i18n.texts import t
+from app.services.catalog import CATEGORIES, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
 from app.services.discounts import discount_price, find_best_auto_discount
 from app.services.payments.nowpayments import NowPaymentsError, PaymentProviderNotConfiguredError
 from app.services.payments.service import create_crypto_payment
@@ -27,26 +28,6 @@ from app.services.vpn_users import get_owned_vpn_user, list_renewable_services
 logger = logging.getLogger(__name__)
 
 router = Router(name="renew")
-
-_LIST_TEXT = "♻️ <b>Renew Service</b>\n\nWhich service do you want to renew?"
-_EMPTY_TEXT = "♻️ <b>Renew Service</b>\n\nYou don't have any services to renew yet."
-_NOT_FOUND_TEXT = "⚠️ Service not found."
-_PLAN_GONE_TEXT = "⚠️ That plan no longer exists. Please pick another."
-_COMING_SOON_TEXT = (
-    "🚧 Payment methods (Stripe, crypto) are coming soon — we'll let you know "
-    "the moment they're live. No charge has been made and your service has not "
-    "been changed."
-)
-_PAYMENT_LINK_TEXT = (
-    "💳 <b>Complete your payment</b>\n\n"
-    "Tap below to open the payment page — you'll be able to choose your "
-    "coin and network there. We'll confirm automatically once payment is "
-    "received; no need to come back and check."
-)
-_PAYMENT_UNAVAILABLE_TEXT = (
-    "⚠️ We couldn't reach the payment provider right now. Please try again "
-    "in a few minutes, or contact support if this keeps happening."
-)
 
 # Trial has no renewal concept - it's excluded from every category/tier
 # screen in this flow, same as Buy excludes it from its own.
@@ -87,9 +68,9 @@ def _parse_id(raw: str) -> int | None:
     return value
 
 
-async def _not_found(callback: CallbackQuery) -> None:
+async def _not_found(callback: CallbackQuery, lang: str) -> None:
     if callback.message is not None:
-        await callback.message.edit_text(_NOT_FOUND_TEXT, reply_markup=back_to_menu_keyboard())
+        await callback.message.edit_text(t("renew_not_found", lang), reply_markup=back_to_menu_keyboard(lang))
     await callback.answer()
 
 
@@ -99,75 +80,75 @@ async def _service_display_name(session: AsyncSession, vpn_user: VPNUser) -> str
 
 
 @router.callback_query(F.data == "menu:renew")
-async def renew_start_cb(callback: CallbackQuery) -> None:
+async def renew_start_cb(callback: CallbackQuery, lang: str) -> None:
     telegram_id = callback.from_user.id
     async with async_session_maker() as session:
         rows = await list_renewable_services(session, telegram_id)
 
     if not rows:
         if callback.message is not None:
-            await callback.message.edit_text(_EMPTY_TEXT, reply_markup=renew_empty_keyboard())
+            await callback.message.edit_text(t("renew_empty", lang), reply_markup=renew_empty_keyboard(lang))
         await callback.answer()
         return
 
     if callback.message is not None:
-        await callback.message.edit_text(_LIST_TEXT, reply_markup=renew_service_keyboard(rows))
+        await callback.message.edit_text(t("renew_list_heading", lang), reply_markup=renew_service_keyboard(rows, lang))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("renew:service:"))
-async def renew_service_cb(callback: CallbackQuery) -> None:
+async def renew_service_cb(callback: CallbackQuery, lang: str) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
     vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
     if vpn_user_id is None:
-        await _not_found(callback)
+        await _not_found(callback, lang)
         return
 
     async with async_session_maker() as session:
         vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
         if vpn_user is None:
-            await _not_found(callback)
+            await _not_found(callback, lang)
             return
         name = await _service_display_name(session, vpn_user)
 
-    text = f"♻️ <b>Renew {name}</b>\n\nPick a category:"
+    text = t("renew_pick_category", lang, name=name)
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=renew_category_keyboard(vpn_user_id))
+        await callback.message.edit_text(text, reply_markup=renew_category_keyboard(vpn_user_id, lang))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("renew:category:"))
-async def renew_category_cb(callback: CallbackQuery) -> None:
+async def renew_category_cb(callback: CallbackQuery, lang: str) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
     vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
     if vpn_user_id is None:
-        await _not_found(callback)
+        await _not_found(callback, lang)
         return
 
     async with async_session_maker() as session:
         vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
         if vpn_user is None:
-            await _not_found(callback)
+            await _not_found(callback, lang)
             return
         name = await _service_display_name(session, vpn_user)
 
         category = parts[3] if len(parts) > 3 else ""
         if category not in _RENEW_CATEGORIES:
-            text = f"♻️ <b>Renew {name}</b>\n\nPick a category:"
+            text = t("renew_pick_category", lang, name=name)
             if callback.message is not None:
-                await callback.message.edit_text(text, reply_markup=renew_category_keyboard(vpn_user_id))
+                await callback.message.edit_text(text, reply_markup=renew_category_keyboard(vpn_user_id, lang))
             await callback.answer()
             return
 
         plans = await list_plans(session, category=category, active_only=True)
 
-    text = f"♻️ <b>Renew {name}</b>\n\nPick a plan:"
+    text = t("renew_pick_plan", lang, name=name)
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=renew_plan_keyboard(plans, vpn_user_id, category))
+        await callback.message.edit_text(text, reply_markup=renew_plan_keyboard(plans, vpn_user_id, category, lang))
     await callback.answer()
 
 
@@ -177,88 +158,87 @@ def _is_renewable(plan: Plan | None) -> bool:
     return plan is not None and plan.category != "trial"
 
 
-async def _renew_summary_text(session: AsyncSession, current_name: str, plan: Plan) -> str:
+async def _renew_summary_text(session: AsyncSession, current_name: str, plan: Plan, lang: str) -> str:
     lines = [
-        f"♻️ <b>Renew {current_name} → {plan.name} ({plan.category.title()})</b>",
-        f"Duration: {plan.duration_days} days",
-        f"Data: {format_data_cap(plan.data_cap_mb)}",
+        t("renew_summary_heading", lang, current=current_name, new=plan_display_name(plan, lang), category=category_display_name(plan.category, lang)),
+        t("price_duration", lang, days=plan.duration_days),
+        t("price_data", lang, cap=format_data_cap(plan.data_cap_mb)),
     ]
     discount = await find_best_auto_discount(session, plan.id)
     if discount is not None:
         discounted = discount_price(plan.price_usd, discount.percent)
         percent_text = f"{discount.percent.normalize():f}"
         lines.append(
-            f"Price: <s>{format_price_usd(plan.price_usd)}</s> "
-            f"{format_price_usd(discounted)} (-{percent_text}%)"
+            t("price_line_discounted", lang, original=format_price_usd(plan.price_usd), discounted=format_price_usd(discounted), percent=percent_text)
         )
     else:
-        lines.append(f"Price: {format_price_usd(plan.price_usd)}")
+        lines.append(t("price_line", lang, price=format_price_usd(plan.price_usd)))
     return "\n".join(lines)
 
 
 @router.callback_query(F.data.startswith("renew:plan:"))
-async def renew_plan_cb(callback: CallbackQuery) -> None:
+async def renew_plan_cb(callback: CallbackQuery, lang: str) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
     vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
     if vpn_user_id is None:
-        await _not_found(callback)
+        await _not_found(callback, lang)
         return
 
     plan_id = _parse_int(parts[3]) if len(parts) > 3 else None
     if plan_id is None:
-        await _not_found(callback)
+        await _not_found(callback, lang)
         return
 
     async with async_session_maker() as session:
         vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
         if vpn_user is None:
-            await _not_found(callback)
+            await _not_found(callback, lang)
             return
 
         plan = await get_plan(session, plan_id) if _in_postgres_int_range(plan_id) else None
         if not _is_renewable(plan):
             if callback.message is not None:
-                await callback.message.edit_text(_PLAN_GONE_TEXT, reply_markup=back_to_menu_keyboard())
+                await callback.message.edit_text(t("plan_gone", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
 
         current_name = await _service_display_name(session, vpn_user)
-        text = await _renew_summary_text(session, current_name, plan)
+        text = await _renew_summary_text(session, current_name, plan, lang)
 
     if callback.message is not None:
         await callback.message.edit_text(
-            text, reply_markup=renew_price_summary_keyboard(vpn_user_id, plan.id, plan.category)
+            text, reply_markup=renew_price_summary_keyboard(vpn_user_id, plan.id, plan.category, lang)
         )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("renew:confirm:"))
-async def renew_confirm_cb(callback: CallbackQuery) -> None:
+async def renew_confirm_cb(callback: CallbackQuery, lang: str) -> None:
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
     vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
     if vpn_user_id is None:
-        await _not_found(callback)
+        await _not_found(callback, lang)
         return
 
     plan_id = _parse_int(parts[3]) if len(parts) > 3 else None
     if plan_id is None:
-        await _not_found(callback)
+        await _not_found(callback, lang)
         return
 
     async with async_session_maker() as session:
         vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
         if vpn_user is None:
-            await _not_found(callback)
+            await _not_found(callback, lang)
             return
 
         plan = await get_plan(session, plan_id) if _in_postgres_int_range(plan_id) else None
         if not _is_renewable(plan):
             if callback.message is not None:
-                await callback.message.edit_text(_PLAN_GONE_TEXT, reply_markup=back_to_menu_keyboard())
+                await callback.message.edit_text(t("plan_gone", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
 
@@ -268,7 +248,7 @@ async def renew_confirm_cb(callback: CallbackQuery) -> None:
             )
         except PaymentProviderNotConfiguredError:
             if callback.message is not None:
-                await callback.message.edit_text(_COMING_SOON_TEXT, reply_markup=back_to_menu_keyboard())
+                await callback.message.edit_text(t("payment_coming_soon_renew", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
         except NowPaymentsError:
@@ -276,7 +256,7 @@ async def renew_confirm_cb(callback: CallbackQuery) -> None:
                 "NOWPayments invoice creation failed for vpn_user %s plan %s", vpn_user_id, plan_id, exc_info=True,
             )
             if callback.message is not None:
-                await callback.message.edit_text(_PAYMENT_UNAVAILABLE_TEXT, reply_markup=back_to_menu_keyboard())
+                await callback.message.edit_text(t("payment_unavailable", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
 
@@ -284,5 +264,5 @@ async def renew_confirm_cb(callback: CallbackQuery) -> None:
     # renewal is executed until the webhook (app/webhook.py) reports the
     # payment as "finished".
     if callback.message is not None:
-        await callback.message.edit_text(_PAYMENT_LINK_TEXT, reply_markup=payment_link_keyboard(payment.invoice_url))
+        await callback.message.edit_text(t("payment_link_heading", lang), reply_markup=payment_link_keyboard(payment.invoice_url, lang))
     await callback.answer()
