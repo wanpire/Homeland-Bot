@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -16,8 +18,15 @@ def manage_plans_list_keyboard(plans_by_category: dict[str, list[Plan]]) -> Inli
         emoji = _CATEGORY_EMOJI.get(category, "")
         for plan in plans:
             status = "✅" if plan.is_active else "🚫"
+            # group_name is part of the label because name+category alone
+            # is NOT unique: migration 0010 leaves the three retired
+            # capped-Stream plans ("1 Month"/"2 Months"/"3 Months", stream,
+            # pointing at the dead *-30G/*-60G/*-100G groups) sitting
+            # alongside three brand-new *-Unlimited plans with exactly the
+            # same name and category, both inactive and both at $0.00 -
+            # indistinguishable in this list without the group.
             builder.button(
-                text=f"{emoji} {plan.name} — {format_price_usd(plan.price_usd)} {status}",
+                text=f"{emoji} {plan.name} ({plan.group_name}) — {format_price_usd(plan.price_usd)} {status}",
                 callback_data=f"adm:settings:plan:{plan.id}",
             )
             sizes.append(1)
@@ -46,11 +55,13 @@ def manage_plans_price_edit_cancel_keyboard(plan_id: int) -> InlineKeyboardMarku
 
 def plan_detail_text(plan: Plan) -> str:
     status = "✅ Active" if plan.is_active else "🚫 Inactive"
+    # Rendered with parse_mode=HTML - escape every interpolated DB-sourced
+    # field, same as admin_settings.py's own settings_receive_support_username.
     return (
-        f"💰 <b>{plan.name} ({plan.category})</b>\n\n"
+        f"💰 <b>{html.escape(plan.name)} ({html.escape(plan.category)})</b>\n\n"
         f"Duration: {plan.duration_days} days\n"
         f"Data cap: {format_data_cap(plan.data_cap_mb, 'en')}\n"
-        f"Group: {plan.group_name}\n"
+        f"Group: {html.escape(plan.group_name)}\n"
         f"Price: {format_price_usd(plan.price_usd)}\n"
         f"Status: {status}"
     )

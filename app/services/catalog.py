@@ -22,6 +22,15 @@ async def list_plans(
     return list((await session.execute(query)).scalars().all())
 
 
+async def categories_with_active_plans(session: AsyncSession) -> set[str]:
+    """Which categories currently have at least one active plan. Buy and
+    Renew use this to hide a category button that would lead nowhere -
+    "stream" has zero active plans from migration 0010 until an admin
+    prices and activates the new Unlimited tiers through Manage Plans."""
+    result = await session.execute(select(Plan.category).distinct().where(Plan.is_active.is_(True)))
+    return set(result.scalars().all())
+
+
 async def get_plan(session: AsyncSession, plan_id: int) -> Plan | None:
     return await session.get(Plan, plan_id)
 

@@ -16,7 +16,7 @@ from app.bot.keyboards.trial import back_to_menu_keyboard
 from app.db.models.plan import Plan
 from app.db.session import async_session_maker
 from app.i18n.texts import t
-from app.services.catalog import CATEGORIES, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
+from app.services.catalog import CATEGORIES, categories_with_active_plans, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
 from app.services.discounts import discount_price, find_best_auto_discount
 from app.services.payments.nowpayments import NowPaymentsError, PaymentProviderNotConfiguredError
 from app.services.payments.service import create_crypto_payment
@@ -30,10 +30,22 @@ router = Router(name="buy")
 _BUY_CATEGORIES = tuple(category for category in CATEGORIES if category != "trial")
 
 
+async def _buy_categories(session: AsyncSession) -> set[str]:
+    """Trial is filtered out here, not in the keyboard: it's a real,
+    active plan, so categories_with_active_plans reports it - but Buy
+    must never expose it (that's menu:trial's job)."""
+    active = await categories_with_active_plans(session)
+    return {category for category in active if category in _BUY_CATEGORIES}
+
+
 @router.callback_query(F.data == "menu:buy")
 async def buy_start_cb(callback: CallbackQuery, lang: str) -> None:
+    async with async_session_maker() as session:
+        active_categories = await _buy_categories(session)
     if callback.message is not None:
-        await callback.message.edit_text(t("buy_category_heading", lang), reply_markup=buy_category_keyboard(lang))
+        await callback.message.edit_text(
+            t("buy_category_heading", lang), reply_markup=buy_category_keyboard(lang, active_categories)
+        )
     await callback.answer()
 
 
@@ -41,8 +53,12 @@ async def buy_start_cb(callback: CallbackQuery, lang: str) -> None:
 async def buy_category_cb(callback: CallbackQuery, lang: str) -> None:
     category = callback.data.split(":")[-1]
     if category not in _BUY_CATEGORIES:
+        async with async_session_maker() as session:
+            active_categories = await _buy_categories(session)
         if callback.message is not None:
-            await callback.message.edit_text(t("buy_category_heading", lang), reply_markup=buy_category_keyboard(lang))
+            await callback.message.edit_text(
+                t("buy_category_heading", lang), reply_markup=buy_category_keyboard(lang, active_categories)
+            )
         await callback.answer()
         return
     async with async_session_maker() as session:

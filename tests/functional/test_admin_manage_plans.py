@@ -36,6 +36,31 @@ async def test_manage_plans_list_shows_every_plan_grouped(dispatcher: Any, bot: 
 
 
 @pytest.mark.asyncio
+async def test_manage_plans_list_labels_include_group_name(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """Migration 0010 leaves three retired capped-Stream plans with exactly
+    the same name/category/status as three brand-new Unlimited ones - the
+    group name is the only thing that tells the two rows apart at a glance."""
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:plans"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    keyboard = edited[-1][1]["reply_markup"]["inline_keyboard"]
+    labels = [b["text"] for row in keyboard for b in row]
+
+    assert "🌊 1 Month (1M-1U-Iran-30G) — $12.00 🚫" in labels
+    assert "🌊 1 Month (1M-1U-Iran-Unlimited) — $0.00 🚫" in labels
+    # Every plan label is distinct now.
+    plan_labels = [
+        b["text"]
+        for row in keyboard
+        for b in row
+        if b["callback_data"].startswith("adm:settings:plan:") and b["callback_data"].count(":") == 3
+    ]
+    assert len(set(plan_labels)) == len(plan_labels) == 11
+
+
+@pytest.mark.asyncio
 async def test_manage_plans_detail_view_shows_fields(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:plan:6"))
 
@@ -159,6 +184,106 @@ async def test_toggle_active_hides_plan_from_buy_flow(dispatcher: Any, bot: Any,
     # Plan 8 ("2 Months" scroll) is now inactive - only plan 7 ("1 Month") remains.
     assert len(plan_buttons) == 1
     assert not any(b["callback_data"] == "buy:plan:8" for b in plan_buttons)
+
+
+@pytest.mark.asyncio
+async def test_activating_a_zero_priced_plan_is_refused(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """The 4 rows migration 0010 inserts are inactive at a $0.00
+    placeholder. Activating one before an admin sets a real price would put
+    a free paid product in front of customers - refuse it, and write
+    nothing."""
+    from app.services.catalog import get_plan, list_plans
+
+    async with async_session_maker() as session:
+        placeholder = next(
+            p
+            for p in await list_plans(session, active_only=False)
+            if p.group_name == "1M-1U-Iran-Unlimited"
+        )
+    assert placeholder.price_usd == Decimal("0.00")
+    assert placeholder.is_active is False
+
+    await dispatcher.feed_update(
+        bot, make_callback_update(FAKE_ADMIN_ID, f"adm:settings:plan:{placeholder.id}:toggle")
+    )
+
+    async with async_session_maker() as session:
+        after = await get_plan(session, placeholder.id)
+        assert after is not None
+        assert after.is_active is False  # no DB write happened
+        assert after.price_usd == Decimal("0.00")
+
+    answered = [c for c in fake_session.calls if c[0] == "answerCallbackQuery"]
+    assert any("price above $0.00" in c[1].get("text", "") for c in answered)
+    assert any(c[1].get("show_alert") for c in answered)
+
+
+@pytest.mark.asyncio
+async def test_activating_a_priced_plan_still_works(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """The guard must not block the normal path: once a real price is set,
+    activation proceeds."""
+    from app.services.catalog import get_plan, list_plans, update_plan
+
+    async with async_session_maker() as session:
+        placeholder = next(
+            p
+            for p in await list_plans(session, active_only=False)
+            if p.group_name == "1M-1U-Iran-Unlimited"
+        )
+        await update_plan(session, placeholder.id, price_usd=Decimal("7.00"))
+
+    await dispatcher.feed_update(
+        bot, make_callback_update(FAKE_ADMIN_ID, f"adm:settings:plan:{placeholder.id}:toggle")
+    )
+
+    async with async_session_maker() as session:
+        after = await get_plan(session, placeholder.id)
+        assert after is not None
+        assert after.is_active is True
+
+
+@pytest.mark.asyncio
+async def test_deactivating_is_never_blocked_by_the_price_floor(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """The guard only gates ACTIVATION - turning a live plan off must stay
+    possible whatever its price."""
+    from app.services.catalog import get_plan, update_plan
+
+    async with async_session_maker() as session:
+        await update_plan(session, 8, price_usd=Decimal("0.00"))
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:plan:8:toggle"))
+
+    async with async_session_maker() as session:
+        after = await get_plan(session, 8)
+        assert after is not None
+        assert after.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_trial_plan_is_exempt_from_the_price_floor(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """Trial is a legitimate permanent $0.00 product - it must still be
+    re-activatable after being turned off."""
+    from app.services.catalog import get_plan, list_plans, update_plan
+
+    async with async_session_maker() as session:
+        trial = next(p for p in await list_plans(session, active_only=False) if p.category == "trial")
+        assert trial.price_usd == Decimal("0.00")
+        await update_plan(session, trial.id, is_active=False)
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:settings:plan:{trial.id}:toggle"))
+
+    async with async_session_maker() as session:
+        after = await get_plan(session, trial.id)
+        assert after is not None
+        assert after.is_active is True
 
 
 @pytest.mark.asyncio

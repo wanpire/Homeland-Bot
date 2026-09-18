@@ -3,10 +3,13 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.bot.keyboards.buy import category_row_sizes
 from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
 from app.i18n.texts import t
 from app.services.catalog import category_display_name, format_data_cap, format_price_usd, plan_display_name
+
+_RENEW_CATEGORY_ORDER = ("scroll", "stream", "trip")
 
 
 def renew_service_keyboard(rows: list[tuple[VPNUser, Plan | None]], lang: str) -> InlineKeyboardMarkup:
@@ -27,13 +30,18 @@ def renew_empty_keyboard(lang: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def renew_category_keyboard(vpn_user_id: int, lang: str) -> InlineKeyboardMarkup:
+def renew_category_keyboard(vpn_user_id: int, lang: str, active_categories: set[str]) -> InlineKeyboardMarkup:
+    """Same dead-end-category rule as buy_category_keyboard - see its
+    docstring. Back to List always renders, whatever is active."""
+    shown = [c for c in _RENEW_CATEGORY_ORDER if c in active_categories] or list(_RENEW_CATEGORY_ORDER)
     builder = InlineKeyboardBuilder()
-    builder.button(text=category_display_name("scroll", lang), callback_data=f"renew:category:{vpn_user_id}:scroll")
-    builder.button(text=category_display_name("stream", lang), callback_data=f"renew:category:{vpn_user_id}:stream")
-    builder.button(text=category_display_name("trip", lang), callback_data=f"renew:category:{vpn_user_id}:trip")
+    for category in shown:
+        builder.button(
+            text=category_display_name(category, lang),
+            callback_data=f"renew:category:{vpn_user_id}:{category}",
+        )
     builder.button(text=t("back_to_list_button", lang), callback_data="menu:renew")
-    builder.adjust(2, 1, 1)
+    builder.adjust(*category_row_sizes(len(shown)))
     return builder.as_markup()
 
 

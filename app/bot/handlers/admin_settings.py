@@ -53,6 +53,8 @@ logger = logging.getLogger(__name__)
 _MANAGE_PLANS_CATEGORY_ORDER = ("trial", "scroll", "stream", "trip")
 _MAX_PLAN_PRICE = Decimal("1000")
 _INVALID_PRICE_TEXT = "⚠️ Send a valid price — a positive number under $1000 (e.g. 12.50)."
+_ZERO_PRICE_ACTIVATION_TEXT = "⚠️ Set a price above $0.00 before activating."
+_LOST_PLAN_CONTEXT_TEXT = "⚠️ Something went wrong — please start again."
 
 
 @router.callback_query(F.data == "adm:settings:support")
@@ -359,7 +361,8 @@ async def manage_plan_edit_price_cb(callback: CallbackQuery, state: FSMContext) 
     await state.update_data(plan_id=plan_id)
     if callback.message is not None:
         await callback.message.edit_text(
-            f"Current price for {plan.name} ({plan.category}): {format_price_usd(plan.price_usd)}\n\n"
+            f"Current price for {html.escape(plan.name)} ({html.escape(plan.category)}): "
+            f"{format_price_usd(plan.price_usd)}\n\n"
             "Send the new price (e.g. 12.50):",
             reply_markup=manage_plans_price_edit_cancel_keyboard(plan_id),
         )
@@ -369,7 +372,14 @@ async def manage_plan_edit_price_cb(callback: CallbackQuery, state: FSMContext) 
 @router.message(EditPlanPriceStates.price)
 async def manage_plan_receive_price(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    plan_id = data["plan_id"]
+    # FSM data can legitimately be missing here (storage restart, a state
+    # entered by some path that never set plan_id) - degrade to a generic
+    # restart prompt instead of raising KeyError out of the handler.
+    plan_id = data.get("plan_id")
+    if plan_id is None:
+        await state.clear()
+        await message.answer(_LOST_PLAN_CONTEXT_TEXT, reply_markup=back_to_settings_keyboard())
+        return
     raw = (message.text or "").strip()
 
     try:
@@ -417,6 +427,13 @@ async def manage_plan_toggle_active_cb(callback: CallbackQuery, state: FSMContex
             if callback.message is not None:
                 await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
             await callback.answer()
+            return
+        # Price floor: a plan must never go live at the $0.00 placeholder
+        # the catalog migration inserts (or at a price an admin zeroed
+        # out). Trial is exempt - it's a legitimate permanent $0.00
+        # product. Refuse BEFORE any write, so is_active is left untouched.
+        if not plan.is_active and plan.category != "trial" and plan.price_usd <= 0:
+            await callback.answer(_ZERO_PRICE_ACTIVATION_TEXT, show_alert=True)
             return
         updated = await update_plan(session, plan_id, is_active=not plan.is_active)
 

@@ -47,6 +47,48 @@ async def test_create_vpn_user_creates_ibsng_and_local_row(ibsng_server: FakeIBS
 
 
 @pytest.mark.asyncio
+async def test_create_vpn_user_translates_unlimited_sentinel_to_positive_ibsng_credit(
+    ibsng_server: FakeIBSngServer,
+) -> None:
+    """data_cap_mb=0 is Homeland's "Unlimited" DISPLAY sentinel. IBSng
+    silently accepts credit=0 but leaves the account unusable, so the
+    value that actually reaches IBSng must be positive - while the local
+    row keeps 0, which is what format_data_cap renders as "Unlimited"."""
+    from app.services.vpn_users import _UNLIMITED_IBSNG_CREDIT, create_vpn_user
+
+    async with async_session_maker() as session, IBSngClient() as client:
+        vpn_user = await create_vpn_user(
+            session, client,
+            telegram_id=630, username="hl.unl001", password="ab12cd",
+            group_name="1M-1U-Iran-Unlimited", data_cap_mb=0,
+        )
+
+    assert ibsng_server.user_credit("hl.unl001") == 10
+    assert _UNLIMITED_IBSNG_CREDIT == 10
+    # The DB-side display value is deliberately untouched.
+    assert vpn_user.data_cap_mb == 0
+
+
+@pytest.mark.asyncio
+async def test_create_vpn_user_forwards_a_capped_plans_data_cap_unchanged(
+    ibsng_server: FakeIBSngServer,
+) -> None:
+    """The Unlimited translation must apply ONLY to the 0 sentinel - a
+    normal capped plan's data_cap_mb still reaches IBSng verbatim."""
+    from app.services.vpn_users import create_vpn_user
+
+    async with async_session_maker() as session, IBSngClient() as client:
+        vpn_user = await create_vpn_user(
+            session, client,
+            telegram_id=631, username="hl.cap001", password="ab12cd",
+            group_name="1M-1U-Iran-10G", data_cap_mb=10240,
+        )
+
+    assert ibsng_server.user_credit("hl.cap001") == 10240
+    assert vpn_user.data_cap_mb == 10240
+
+
+@pytest.mark.asyncio
 async def test_create_vpn_user_rejects_duplicate_local_username(ibsng_server: FakeIBSngServer) -> None:
     from app.services.vpn_users import VPNUsernameTakenError, create_vpn_user
 

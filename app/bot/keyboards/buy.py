@@ -8,14 +8,37 @@ from app.i18n.texts import t
 from app.services.catalog import category_display_name, format_data_cap, format_price_usd, plan_display_name
 
 
-def buy_category_keyboard(lang: str) -> InlineKeyboardMarkup:
+_BUY_CATEGORY_ORDER = ("scroll", "stream", "trip")
+
+
+def buy_category_keyboard(lang: str, active_categories: set[str]) -> InlineKeyboardMarkup:
+    """Only renders a category that actually has at least one active plan -
+    tapping one that has none is a dead end (an empty tier list with no
+    explanation). `active_categories` comes from the handler, which has
+    the DB session; this keyboard stays pure and synchronous like every
+    other one here.
+
+    If nothing at all is active (currently unreachable - Scroll, Trip and
+    Trial are all live - but theoretically possible if an admin
+    deactivated everything) it falls back to rendering all three rather
+    than a category-less screen. Back to Menu is added unconditionally, so
+    this keyboard is never a trap regardless of what's active."""
+    shown = [c for c in _BUY_CATEGORY_ORDER if c in active_categories] or list(_BUY_CATEGORY_ORDER)
     builder = InlineKeyboardBuilder()
-    builder.button(text=category_display_name("scroll", lang), callback_data="buy:category:scroll")
-    builder.button(text=category_display_name("stream", lang), callback_data="buy:category:stream")
-    builder.button(text=category_display_name("trip", lang), callback_data="buy:category:trip")
+    for category in shown:
+        builder.button(text=category_display_name(category, lang), callback_data=f"buy:category:{category}")
     builder.button(text=t("back_to_menu", lang), callback_data="menu:root")
-    builder.adjust(2, 1, 1)
+    builder.adjust(*category_row_sizes(len(shown)))
     return builder.as_markup()
+
+
+def category_row_sizes(count: int) -> tuple[int, ...]:
+    """Keeps the original 2-then-1-per-row shape when all three categories
+    render, and degrades sensibly when fewer do. The trailing 1 is the
+    always-present Back button's own row."""
+    if count >= 3:
+        return (2,) + (1,) * (count - 2) + (1,)
+    return (1,) * (count + 1)
 
 
 def buy_plan_keyboard(plans: list[Plan], lang: str) -> InlineKeyboardMarkup:

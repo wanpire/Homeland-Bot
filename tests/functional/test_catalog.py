@@ -9,7 +9,7 @@ from app.db.session import async_session_maker
 
 
 @pytest.mark.asyncio
-async def test_seed_migration_creates_seven_plans() -> None:
+async def test_active_catalog_after_migration_0010() -> None:
     from app.services.catalog import list_plans
 
     async with async_session_maker() as session:
@@ -77,6 +77,38 @@ async def test_list_plans_active_only_excludes_inactive() -> None:
 
     assert len(active) == 3
     assert len(everything) == 11
+
+
+@pytest.mark.asyncio
+async def test_categories_with_active_plans_excludes_stream_after_migration_0010() -> None:
+    """Stream has zero active plans until an admin prices and activates one
+    of the new Unlimited tiers - Buy/Renew use this to hide the dead-end
+    category button."""
+    from app.services.catalog import categories_with_active_plans
+
+    async with async_session_maker() as session:
+        categories = await categories_with_active_plans(session)
+
+    assert categories == {"trial", "scroll", "trip"}
+    assert "stream" not in categories
+
+
+@pytest.mark.asyncio
+async def test_categories_with_active_plans_reports_stream_once_one_is_activated() -> None:
+    from app.services.catalog import categories_with_active_plans, list_plans, update_plan
+
+    async with async_session_maker() as session:
+        stream_plan = next(
+            p
+            for p in await list_plans(session, active_only=False)
+            if p.category == "stream" and p.group_name == "1M-1U-Iran-Unlimited"
+        )
+        await update_plan(session, stream_plan.id, price_usd=Decimal("7.00"), is_active=True)
+
+    async with async_session_maker() as session:
+        categories = await categories_with_active_plans(session)
+
+    assert "stream" in categories
 
 
 @pytest.mark.asyncio

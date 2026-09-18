@@ -74,6 +74,17 @@ class FakeIBSngServer:
                 if u["attrs"].get("normal_username") is not None
             ]
 
+    def user_credit(self, username: str) -> Any:
+        """Test-only introspection: the `credit` value the caller actually
+        sent to user.addNewUsers for this account. Lets a test assert on
+        what reached IBSng, not just on what the local DB row stored."""
+        with self._lock:
+            found = self._find_by_username(username)
+            if found is None:
+                raise KeyError(f"no fake IBSng user named {username!r}")
+            _, user = found
+            return user["basic_info"]["credit"]
+
     def user_count(self) -> int:
         """Total accounts on the fake server, INCLUDING any created by
         user.addNewUsers that never got a username assigned - exactly the

@@ -17,7 +17,10 @@ async def test_buy_shows_category_picker(dispatcher: Any, bot: Any, fake_session
     assert len(edited) == 1
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "📜 Scroll" in buttons
-    assert "🌊 Stream" in buttons
+    assert "🧳 Trip" in buttons
+    # Stream has zero active plans after migration 0010 - see
+    # test_buy_stream_category_button_hidden_when_no_active_plans.
+    assert "🌊 Stream" not in buttons
     assert any("back" in b.lower() for b in buttons)
 
 
@@ -43,20 +46,53 @@ async def test_buy_category_shows_scroll_tiers_with_prices(
 
 
 @pytest.mark.asyncio
-async def test_buy_category_shows_stream_tiers_with_prices(
+async def test_buy_stream_category_button_hidden_when_no_active_plans(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:
-    await dispatcher.feed_update(bot, make_callback_update(999, "buy:category:stream"))
+    """After migration 0010 the old capped-Stream plans are deactivated and
+    the new Unlimited ones are not yet priced/activated, so Stream has zero
+    active plans. Its button must not render at all - tapping it used to
+    land on an empty tier list with no explanation."""
+    await dispatcher.feed_update(bot, make_callback_update(999, "menu:buy"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    # After migration 0010: old stream plans are inactive, new ones are not yet activated.
-    # So there are no active stream plans. The UI shows "Pick a plan:" but with no tiers.
     assert len(edited) == 1
-    text = edited[0][1]["text"]
-    assert "Pick a plan:" in text
-    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    # No stream tier buttons should be present
-    assert not any("stream" in b.lower() or "unlimited" in b.lower() for b in buttons)
+    all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert not any(b["callback_data"] == "buy:category:stream" for b in all_buttons)
+    # ...and the screen is still navigable.
+    assert any(b["callback_data"] == "menu:root" for b in all_buttons)
+
+
+@pytest.mark.asyncio
+async def test_buy_stream_category_button_reappears_once_a_stream_plan_is_activated(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from decimal import Decimal
+
+    from app.db.session import async_session_maker
+    from app.services.catalog import list_plans, update_plan
+
+    async with async_session_maker() as session:
+        stream_plan = next(
+            p
+            for p in await list_plans(session, active_only=False)
+            if p.category == "stream" and p.group_name == "1M-1U-Iran-Unlimited"
+        )
+        await update_plan(session, stream_plan.id, price_usd=Decimal("7.00"), is_active=True)
+
+    await dispatcher.feed_update(bot, make_callback_update(9991, "menu:buy"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    all_buttons = [b for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any(b["callback_data"] == "buy:category:stream" for b in all_buttons)
+
+    await dispatcher.feed_update(bot, make_callback_update(9991, "buy:category:stream"))
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    plan_buttons = [
+        b for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row
+        if b["callback_data"].startswith("buy:plan:")
+    ]
+    assert [b["callback_data"] for b in plan_buttons] == [f"buy:plan:{stream_plan.id}"]
 
 
 @pytest.mark.asyncio
@@ -75,7 +111,7 @@ async def test_buy_category_invalid_category_redirects_to_category_picker(
     assert "Pick a category" in text
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "📜 Scroll" in buttons
-    assert "🌊 Stream" in buttons
+    assert "🧳 Trip" in buttons
 
 
 @pytest.mark.asyncio

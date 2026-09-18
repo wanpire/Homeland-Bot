@@ -19,7 +19,7 @@ from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.i18n.texts import t
-from app.services.catalog import CATEGORIES, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
+from app.services.catalog import CATEGORIES, categories_with_active_plans, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
 from app.services.discounts import discount_price, find_best_auto_discount
 from app.services.payments.nowpayments import NowPaymentsError, PaymentProviderNotConfiguredError
 from app.services.payments.service import create_crypto_payment
@@ -74,6 +74,13 @@ async def _not_found(callback: CallbackQuery, lang: str) -> None:
     await callback.answer()
 
 
+async def _renew_categories(session: AsyncSession) -> set[str]:
+    """Same trial-exclusion reasoning as Buy's own _buy_categories: trial
+    is an active plan but has no renewal concept, so it never shows here."""
+    active = await categories_with_active_plans(session)
+    return {category for category in active if category in _RENEW_CATEGORIES}
+
+
 async def _service_display_name(session: AsyncSession, vpn_user: VPNUser, lang: str) -> str:
     plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
     return plan_display_name(plan, lang) if plan is not None else vpn_user.ibsng_group
@@ -112,10 +119,13 @@ async def renew_service_cb(callback: CallbackQuery, lang: str) -> None:
             await _not_found(callback, lang)
             return
         name = await _service_display_name(session, vpn_user, lang)
+        active_categories = await _renew_categories(session)
 
     text = t("renew_pick_category", lang, name=name)
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=renew_category_keyboard(vpn_user_id, lang))
+        await callback.message.edit_text(
+            text, reply_markup=renew_category_keyboard(vpn_user_id, lang, active_categories)
+        )
     await callback.answer()
 
 
@@ -138,9 +148,12 @@ async def renew_category_cb(callback: CallbackQuery, lang: str) -> None:
 
         category = parts[3] if len(parts) > 3 else ""
         if category not in _RENEW_CATEGORIES:
+            active_categories = await _renew_categories(session)
             text = t("renew_pick_category", lang, name=name)
             if callback.message is not None:
-                await callback.message.edit_text(text, reply_markup=renew_category_keyboard(vpn_user_id, lang))
+                await callback.message.edit_text(
+                    text, reply_markup=renew_category_keyboard(vpn_user_id, lang, active_categories)
+                )
             await callback.answer()
             return
 

@@ -96,7 +96,10 @@ async def test_renew_service_shows_category_picker(
     assert "Renew 1 Month" in edited[0][1]["text"]
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "📜 Scroll" in buttons
-    assert "🌊 Stream" in buttons
+    assert "🧳 Trip" in buttons
+    # Stream has zero active plans after migration 0010 - see
+    # test_renew_stream_category_button_hidden_when_no_active_plans.
+    assert "🌊 Stream" not in buttons
     assert any("back" in b.lower() for b in buttons)
 
 
@@ -185,7 +188,51 @@ async def test_renew_category_invalid_category_redirects_to_category_picker(
     assert "Pick a category" in edited[0][1]["text"]
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "📜 Scroll" in buttons
-    assert "🌊 Stream" in buttons
+    assert "🧳 Trip" in buttons
+
+
+@pytest.mark.asyncio
+async def test_renew_stream_category_button_hidden_when_no_active_plans(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """Same dead-end fix as Buy's: Stream has zero active plans after
+    migration 0010, so its button must not render - while the Back button
+    always does."""
+    telegram_id = 834
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:service:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    all_buttons = [b for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert not any(b["callback_data"] == f"renew:category:{service.id}:stream" for b in all_buttons)
+    assert any(b["callback_data"] == "menu:renew" for b in all_buttons)
+
+
+@pytest.mark.asyncio
+async def test_renew_stream_category_button_reappears_once_a_stream_plan_is_activated(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    from decimal import Decimal
+
+    from app.services.catalog import list_plans, update_plan
+
+    telegram_id = 835
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    async with async_session_maker() as session:
+        stream_plan = next(
+            p
+            for p in await list_plans(session, active_only=False)
+            if p.category == "stream" and p.group_name == "1M-1U-Iran-Unlimited"
+        )
+        await update_plan(session, stream_plan.id, price_usd=Decimal("7.00"), is_active=True)
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:service:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    all_buttons = [b for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any(b["callback_data"] == f"renew:category:{service.id}:stream" for b in all_buttons)
 
 
 @pytest.mark.asyncio
