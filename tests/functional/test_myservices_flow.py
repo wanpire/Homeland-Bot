@@ -76,8 +76,8 @@ async def test_myservices_lists_services_with_status_badges(
 ) -> None:
     telegram_id = 702
     active = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
-    expired = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
-    pending = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    expired = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
+    pending = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Months")
 
     future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M")
     past = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
@@ -92,7 +92,7 @@ async def test_myservices_lists_services_with_status_badges(
     texts = [b["text"] for b in buttons]
     assert "1 Month — ✅ Active" in texts
     assert "2 Weeks — ⛔ Expired" in texts
-    assert sum(1 for t in texts if t.startswith("1 Month — ⏳ Pending")) == 1
+    assert sum(1 for t in texts if t.startswith("2 Months — ⏳ Pending")) == 1
 
     callback_by_text = {b["text"]: b["callback_data"] for b in buttons}
     assert callback_by_text["1 Month — ✅ Active"] == f"myservices:view:{active.id}"
@@ -488,7 +488,7 @@ async def test_myservices_list_shows_plan_name_in_persian(
     from app.services.bot_users import record_seen, set_language
 
     telegram_id = 721
-    await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
 
     async with async_session_maker() as session:
         await record_seen(session, telegram_id, None)
@@ -513,7 +513,7 @@ async def test_myservices_detail_shows_plan_name_in_persian(
     from app.services.bot_users import record_seen, set_language
 
     telegram_id = 722
-    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
 
     async with async_session_maker() as session:
         await record_seen(session, telegram_id, None)

@@ -161,12 +161,11 @@ async def test_renew_category_shows_scroll_tiers_with_prices(
     assert "Renew 1 Month" in edited[0][1]["text"]
     all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     buttons = [b["text"] for b in all_buttons]
-    assert "2 Weeks — $3.00 (5 GB)" in buttons
     assert "1 Month — $5.00 (10 GB)" in buttons
     assert "2 Months — $9.00 (20 GB)" in buttons
 
     callback_data_by_text = {b["text"]: b["callback_data"] for b in all_buttons}
-    for name in ("2 Weeks", "1 Month", "2 Months"):
+    for name in ("1 Month", "2 Months"):
         plan_id = _plan_id(seeded_catalog, category="scroll", name=name)
         matching = next(cb for text, cb in callback_data_by_text.items() if text.startswith(f"{name} — "))
         assert matching == f"renew:plan:{service.id}:{plan_id}"
@@ -509,7 +508,7 @@ async def test_renew_summary_in_persian(dispatcher: Any, bot: Any, fake_session:
     from app.services.bot_users import record_seen, set_language
 
     telegram_id = 841
-    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
     new_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
 
     async with async_session_maker() as session:
@@ -534,7 +533,7 @@ async def test_renew_list_shows_current_plan_name_in_persian(
     from app.services.bot_users import record_seen, set_language
 
     telegram_id = 850
-    await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
 
     async with async_session_maker() as session:
         await record_seen(session, telegram_id, None)
@@ -559,7 +558,7 @@ async def test_renew_category_picker_shows_current_plan_name_in_persian(
     from app.services.bot_users import record_seen, set_language
 
     telegram_id = 851
-    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
 
     async with async_session_maker() as session:
         await record_seen(session, telegram_id, None)
@@ -584,7 +583,7 @@ async def test_renew_summary_shows_current_plan_name_in_persian(
     from app.services.bot_users import record_seen, set_language
 
     telegram_id = 852
-    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
     new_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
 
     async with async_session_maker() as session:

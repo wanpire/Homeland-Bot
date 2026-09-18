@@ -31,13 +31,12 @@ async def test_buy_category_shows_scroll_tiers_with_prices(
     assert len(edited) == 1
     all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     buttons = [b["text"] for b in all_buttons]
-    assert "2 Weeks — $3.00 (5 GB)" in buttons
     assert "1 Month — $5.00 (10 GB)" in buttons
     assert "2 Months — $9.00 (20 GB)" in buttons
     assert any("back" in b.lower() for b in buttons)
 
     callback_data_by_text = {b["text"]: b["callback_data"] for b in all_buttons}
-    for name in ("2 Weeks", "1 Month", "2 Months"):
+    for name in ("1 Month", "2 Months"):
         plan_id = _plan_id(seeded_catalog, category="scroll", name=name)
         matching = next(cb for text, cb in callback_data_by_text.items() if text.startswith(f"{name} — "))
         assert matching == f"buy:plan:{plan_id}"
@@ -50,18 +49,14 @@ async def test_buy_category_shows_stream_tiers_with_prices(
     await dispatcher.feed_update(bot, make_callback_update(999, "buy:category:stream"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    # After migration 0010: old stream plans are inactive, new ones are not yet activated.
+    # So there are no active stream plans. The UI shows "Pick a plan:" but with no tiers.
     assert len(edited) == 1
-    all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    buttons = [b["text"] for b in all_buttons]
-    assert "1 Month — $12.00 (30 GB)" in buttons
-    assert "2 Months — $20.00 (60 GB)" in buttons
-    assert "3 Months — $29.00 (100 GB)" in buttons
-
-    callback_data_by_text = {b["text"]: b["callback_data"] for b in all_buttons}
-    for name in ("1 Month", "2 Months", "3 Months"):
-        plan_id = _plan_id(seeded_catalog, category="stream", name=name)
-        matching = next(cb for text, cb in callback_data_by_text.items() if text.startswith(f"{name} — "))
-        assert matching == f"buy:plan:{plan_id}"
+    text = edited[0][1]["text"]
+    assert "Pick a plan:" in text
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    # No stream tier buttons should be present
+    assert not any("stream" in b.lower() or "unlimited" in b.lower() for b in buttons)
 
 
 @pytest.mark.asyncio

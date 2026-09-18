@@ -15,43 +15,33 @@ async def test_seed_migration_creates_seven_plans() -> None:
     async with async_session_maker() as session:
         plans = await list_plans(session)
 
+    # After migration 0010: old stream plans (9, 10, 11) are deactivated,
+    # so only 4 active plans remain (trial, trip, scroll, scroll)
     assert [p.name for p in plans] == [
         "Trial",
         "2 Weeks",
         "1 Month",
         "2 Months",
-        "1 Month",
-        "2 Months",
-        "3 Months",
     ]
     assert [p.category for p in plans] == [
         "trial",
+        "trip",
         "scroll",
         "scroll",
-        "scroll",
-        "stream",
-        "stream",
-        "stream",
     ]
-    assert [p.duration_days for p in plans] == [1, 14, 30, 60, 30, 60, 90]
-    assert [p.data_cap_mb for p in plans] == [1024, 5120, 10240, 20480, 30720, 61440, 102400]
+    assert [p.duration_days for p in plans] == [1, 14, 30, 60]
+    assert [p.data_cap_mb for p in plans] == [1024, 5120, 10240, 20480]
     assert [p.price_usd for p in plans] == [
         Decimal("0.00"),
         Decimal("3.00"),
         Decimal("5.00"),
         Decimal("9.00"),
-        Decimal("12.00"),
-        Decimal("20.00"),
-        Decimal("29.00"),
     ]
     assert [p.group_name for p in plans] == [
         "Trial-Iran",
         "2W-1U-Iran-5G",
         "1M-1U-Iran-10G",
         "2M-1U-Iran-20G",
-        "1M-1U-Iran-30G",
-        "2M-1U-Iran-60G",
-        "3M-1U-Iran-100G",
     ]
 
 
@@ -63,10 +53,14 @@ async def test_list_plans_filters_by_category() -> None:
         scroll = await list_plans(session, category="scroll")
         stream = await list_plans(session, category="stream")
         trial = await list_plans(session, category="trial")
+        trip = await list_plans(session, category="trip")
 
-    assert [p.group_name for p in scroll] == ["2W-1U-Iran-5G", "1M-1U-Iran-10G", "2M-1U-Iran-20G"]
-    assert [p.group_name for p in stream] == ["1M-1U-Iran-30G", "2M-1U-Iran-60G", "3M-1U-Iran-100G"]
+    assert [p.group_name for p in scroll] == ["1M-1U-Iran-10G", "2M-1U-Iran-20G"]
+    # After migration 0010: old stream plans (9, 10, 11) are deactivated,
+    # new stream plans are inactive. No active stream plans remain.
+    assert [p.group_name for p in stream] == []
     assert [p.group_name for p in trial] == ["Trial-Iran"]
+    assert [p.group_name for p in trip] == ["2W-1U-Iran-5G"]
 
 
 @pytest.mark.asyncio
@@ -81,8 +75,8 @@ async def test_list_plans_active_only_excludes_inactive() -> None:
         active = await list_plans(session, active_only=True)
         everything = await list_plans(session, active_only=False)
 
-    assert len(active) == 6
-    assert len(everything) == 7
+    assert len(active) == 3
+    assert len(everything) == 11
 
 
 @pytest.mark.asyncio
