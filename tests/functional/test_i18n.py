@@ -67,3 +67,29 @@ def test_texts_format_placeholders_match_between_languages() -> None:
         en_placeholders = set(placeholder_re.findall(en_text))
         fa_placeholders = set(placeholder_re.findall(TEXTS["fa"][key]))
         assert en_placeholders == fa_placeholders, f"placeholder mismatch for key {key!r}"
+
+
+def test_t_falls_back_to_english_when_key_missing_from_requested_language(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression test: a key present in English but missing from Persian should
+    fall back to English text (with a logged warning), not return the bare key."""
+    from app.i18n import texts
+    from app.i18n.texts import t
+
+    # Monkeypatch: add a key to English only
+    original_en = texts.TEXTS["en"].copy()
+    original_fa = texts.TEXTS["fa"].copy()
+    texts.TEXTS["en"]["test_asymmetric_key"] = "This is English only"
+    # fa dict intentionally does NOT have this key
+
+    try:
+        with caplog.at_level(logging.WARNING):
+            result = t("test_asymmetric_key", "fa")
+        # Should fall back to English text, not return the bare key
+        assert result == "This is English only"
+        # Should log a warning about the missing key
+        assert "test_asymmetric_key" in caplog.text
+        assert "fa" in caplog.text
+    finally:
+        # Restore original dicts
+        texts.TEXTS["en"] = original_en
+        texts.TEXTS["fa"] = original_fa

@@ -298,14 +298,18 @@ def t(key: str, lang: str, **kwargs: object) -> str:
     English (logged as a warning), and a key missing from English too
     returns the bare key itself so a broken lookup is visible in the
     chat rather than crashing the handler."""
-    if lang not in TEXTS:
-        logger.warning("Missing i18n language %r, falling back to %r", lang, DEFAULT_LANG)
-        lang = DEFAULT_LANG
-
-    lang_dict = TEXTS[lang]
+    lang_is_recognized = lang in TEXTS
+    lang_dict = TEXTS.get(lang, TEXTS[DEFAULT_LANG])
     template = lang_dict.get(key)
     if template is None:
-        logger.warning("Missing i18n key %r in language %r", key, lang)
+        if lang != DEFAULT_LANG:
+            logger.warning("Missing i18n key %r for lang=%r, falling back to %r", key, lang, DEFAULT_LANG)
+        template = TEXTS[DEFAULT_LANG].get(key)
+    elif not lang_is_recognized:
+        # Language not recognized but key exists in fallback English - still log the missing language
+        logger.warning("Missing i18n language %r, falling back to %r", lang, DEFAULT_LANG)
+    if template is None:
+        logger.warning("Missing i18n key %r in every language", key)
         return key
     try:
         return template.format(**kwargs)
