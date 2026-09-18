@@ -13,6 +13,8 @@ from sqlalchemy import select
 from app.db.models.payment import Payment
 from app.db.models.payment_status_event import PaymentStatusEvent
 from app.db.session import async_session_maker
+from app.i18n.texts import t
+from app.services.bot_users import get_language
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
 from app.services.payments.crypto_provider import CryptoProvider
@@ -131,7 +133,8 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
                     username = await activate_finished_payment(session, client, payment)
                 except VPNUsernameTakenError:
                     logger.error("Payment %s: pre-generated username collided", payment.id)
-                    await _notify_activation_technical_issue(bot, payment)
+                    lang = (await get_language(session, payment.telegram_id)) or "en"
+                    await _notify_activation_technical_issue(bot, payment, lang)
                     return web.Response(status=200, text="ok")
                 except IBSngUserExistsError:
                     # Permanent failure - an orphaned IBSng-side account
@@ -141,7 +144,8 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
                     logger.error(
                         "Payment %s: IBSng account already exists (orphaned account)", payment.id,
                     )
-                    await _notify_activation_technical_issue(bot, payment)
+                    lang = (await get_language(session, payment.telegram_id)) or "en"
+                    await _notify_activation_technical_issue(bot, payment, lang)
                     return web.Response(status=200, text="ok")
                 except IBSngError as exc:
                     logger.error("Payment %s: IBSng error during activation: %s", payment.id, exc)
@@ -150,10 +154,11 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             payment.status = "paid"
             payment.resolved_at = dt.datetime.now(dt.timezone.utc)
             await session.commit()
-            action = "renewed" if payment.purpose == "renew" else "activated"
+            action_key = "action_renewed" if payment.purpose == "renew" else "action_activated"
+            lang = (await get_language(session, payment.telegram_id)) or "en"
             await bot.send_message(
                 payment.telegram_id,
-                f"🎉 Payment confirmed! Your service (<code>{username}</code>) has been {action}.",
+                t("payment_confirmed", lang, username=username, action=t(action_key, lang)),
             )
 
         elif new_status == "partially_paid":
@@ -167,12 +172,11 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             # conversion ratio, which this design doesn't track. The
             # linked payment page itself shows the exact remaining
             # balance in the correct currency.
+            lang = (await get_language(session, payment.telegram_id)) or "en"
             await bot.send_message(
                 payment.telegram_id,
-                "⚠️ We received a partial payment — it wasn't quite enough to complete your order, "
-                "so your service hasn't been activated yet. Tap below to finish paying the remaining "
-                "balance; the page will show exactly how much is left.",
-                reply_markup=_topup_keyboard(payment),
+                t("partial_payment", lang),
+                reply_markup=_topup_keyboard(payment, lang),
             )
 
         else:  # "failed" or "refunded"
@@ -180,38 +184,31 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             payment.resolved_at = dt.datetime.now(dt.timezone.utc)
             await session.commit()
             if new_status == "failed":
-                await bot.send_message(
-                    payment.telegram_id,
-                    "❌ This payment did not complete. You can start over any time from "
-                    "Buy Subscription or Renew Service.",
-                )
+                lang = (await get_language(session, payment.telegram_id)) or "en"
+                await bot.send_message(payment.telegram_id, t("payment_failed", lang))
             # "refunded": recorded, no user-facing message defined for v1.
 
     return web.Response(status=200, text="ok")
 
 
-async def _notify_activation_technical_issue(bot: Bot, payment: Payment) -> None:
+async def _notify_activation_technical_issue(bot: Bot, payment: Payment, lang: str) -> None:
     """Notify the user that their payment was received but activation hit
     a permanent technical issue. Tolerates the user having blocked the
     bot - that failure must never prevent the handler's 200 response,
     since NOWPayments would otherwise retry forever for a situation
     retrying can never fix."""
     try:
-        await bot.send_message(
-            payment.telegram_id,
-            "⚠️ Your payment was received, but we hit a technical issue activating your "
-            "service. Please contact support with your payment date and amount.",
-        )
+        await bot.send_message(payment.telegram_id, t("activation_technical_issue", lang))
     except TelegramForbiddenError:
         logger.warning(
             "Payment %s: could not notify user %s - bot is blocked", payment.id, payment.telegram_id,
         )
 
 
-def _topup_keyboard(payment: Payment) -> InlineKeyboardMarkup:
+def _topup_keyboard(payment: Payment, lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if payment.invoice_url:
-        builder.button(text="💰 Finish Payment", url=payment.invoice_url)
-    builder.button(text="⬅️ Back to Menu", callback_data="menu:root")
+        builder.button(text=t("finish_payment_button", lang), url=payment.invoice_url)
+    builder.button(text=t("back_to_menu", lang), callback_data="menu:root")
     builder.adjust(1)
     return builder.as_markup()

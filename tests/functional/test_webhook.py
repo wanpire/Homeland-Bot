@@ -117,6 +117,46 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
 
 
 @pytest.mark.asyncio
+async def test_payment_confirmed_message_in_persian(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.bot_users import record_seen, set_language
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://nowpayments.io/payment/wh-fa1", "np-wh-fa1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=990, purpose="purchase", plan=plan, vpn_user=None)
+
+    async with async_session_maker() as session:
+        await record_seen(session, 990, None)
+        await set_language(session, 990, "fa")
+
+    client = await _make_client(bot)
+    try:
+        raw_body, signature = _sign({
+            "order_id": str(payment.id), "payment_id": "np-wh-fa1", "payment_status": "finished",
+            "actually_paid": "5.0",
+        })
+        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        assert response.status == 200
+    finally:
+        await client.close()
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert len(sent) == 1
+    assert "پرداخت تأیید شد" in sent[0][1]["text"]
+
+
+@pytest.mark.asyncio
 async def test_webhook_duplicate_finished_delivery_is_idempotent(
     bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
