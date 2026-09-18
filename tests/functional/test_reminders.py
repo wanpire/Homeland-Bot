@@ -382,3 +382,41 @@ async def test_sends_persian_reminder_to_persian_user(
     assert "اعتبار سرویس شما" in sent[0][1]["text"]
     buttons = [b for row in sent[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert any(b["text"] == "♻️ تمدید کنید" for b in buttons)
+
+
+@pytest.mark.asyncio
+async def test_language_lookup_failure_defaults_to_english_and_continues_batch(
+    bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When get_language raises for one candidate, that candidate should
+    still receive their reminder (in English as a safe default), and the
+    batch should continue processing any other candidates normally."""
+    import datetime as dt
+
+    from app.services.reminders import send_due_reminders
+
+    await _seed_vpn_user(760)
+    await _seed_vpn_user(761)
+    expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    _patch_status(monkeypatch, "active", expiry)
+
+    async def _fake_get_language(session: object, telegram_id: int) -> str | None:
+        if telegram_id == 760:
+            raise RuntimeError("transient DB error")
+        return None  # 761 has no language set, defaults to English
+
+    from app.services import bot_users
+
+    monkeypatch.setattr(bot_users, "get_language", _fake_get_language)
+
+    await send_due_reminders(bot)
+
+    sent = _sent(fake_session)
+    assert len(sent) == 2  # Both candidates should receive reminders
+
+    # Both should be in English (760 due to fallback, 761 due to no language set)
+    assert all("expires" in s[1]["text"].lower() for s in sent)
+    assert all(
+        any(b["text"] == "♻️ Renew Now" for row in s[1]["reply_markup"]["inline_keyboard"] for b in row)
+        for s in sent
+    )

@@ -108,7 +108,14 @@ async def send_due_reminders(bot: Bot) -> None:
                 if not (dt.timedelta(0) < (expiry - now) <= window):
                     continue
 
-                lang = (await get_language(session, vpn_user.telegram_id)) or "en"
+                try:
+                    lang = (await get_language(session, vpn_user.telegram_id)) or "en"
+                except Exception:
+                    logger.exception(
+                        "Failed to look up language for telegram_id=%s, defaulting to English",
+                        vpn_user.telegram_id,
+                    )
+                    lang = "en"
                 text = t("reminder_message", lang, username=vpn_user.ibsng_username, days=window.days)
                 try:
                     await bot.send_message(vpn_user.telegram_id, text, reply_markup=_renew_now_keyboard(lang))
