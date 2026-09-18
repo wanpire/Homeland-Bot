@@ -22,20 +22,32 @@ _PASSWORD_LEN = 6
 
 
 class VPNUsernameTakenError(Exception):
-    """Raised when a generated username collides locally, in IBSng, or
-    (for a trial) when the DB's partial unique index rejects a second
-    is_trial=true row for the same telegram_id - all three are the same
-    "this account can't be created as requested" situation from the
-    caller's point of view."""
+    """Raised when a generated username collides locally or in IBSng -
+    the "this account can't be created as requested" situation from the
+    caller's point of view. (Before migration 0008, this was also raised
+    when the DB's partial unique index rejected a second is_trial=true
+    row for the same telegram_id; that index is gone now - see
+    TrialAlreadyUsedError's docstring and has_used_trial for where that
+    enforcement lives today.)"""
 
 
 class TrialAlreadyUsedError(Exception):
     """Raised when create_vpn_user(is_trial=True) is called for a
-    telegram_id that already has a trial VPNUser row. Checked BEFORE
-    any IBSng call, so a repeat trial attempt never provisions (and
-    orphans) a real account on the shared IBSng instance - unlike
-    VPNUsernameTakenError, which can only be detected after the local
-    insert, this constraint is knowable up front from a plain query."""
+    telegram_id that already has a trial VPNUser row and trial_limit_enabled
+    is not "false". Checked BEFORE any IBSng call, so a repeat trial
+    attempt never provisions (and orphans) a real account on the shared
+    IBSng instance - unlike VPNUsernameTakenError, which can only be
+    detected after the local insert, this constraint is knowable up
+    front from a plain query.
+
+    There is no DB-level backstop for this any more: migration 0008
+    dropped ix_vpn_users_trial_once specifically so an admin-disabled
+    limit can actually be bypassed (see has_used_trial). This means a
+    race between two concurrent trial:confirm taps from the same
+    telegram_id - both passing this pre-check before either commits -
+    is possible in principle, even with the limit enforced. Accepted
+    as rare and low-impact, matching the same tradeoff AloBot's own
+    check_trial_eligibility already makes for its monthly trial limit."""
 
 
 def _random_password(length: int) -> str:
@@ -70,20 +82,21 @@ async def create_vpn_user(
     local uniqueness pre-checks (both of them avoid creating an orphan
     IBSng account for a request the local DB already knows it must
     reject: a username we already know is taken, and - for a trial - a
-    telegram_id that already claimed its one lifetime trial) -> IBSng
-    account creation -> local row insert -> IntegrityError as a
-    race-condition backstop (two concurrent requests that both passed
-    the pre-checks; covers a username collision AND, via the partial
-    unique index on is_trial, a duplicate trial claim - both surface as
-    the same VPNUsernameTakenError)."""
+    telegram_id that has already claimed a trial while the limit is
+    enforced) -> IBSng account creation -> local row insert ->
+    IntegrityError as a race-condition backstop for a username
+    collision (VPNUsernameTakenError). A duplicate trial claim has no
+    such DB-level backstop any more (see TrialAlreadyUsedError's
+    docstring) - only the pre-check below guards it."""
     existing = await session.execute(select(VPNUser).where(VPNUser.ibsng_username == username))
     if existing.scalar_one_or_none() is not None:
         raise VPNUsernameTakenError(f"{username!r} already exists locally")
 
-    # Must come BEFORE the IBSng call: the partial unique index would
-    # reject the local insert anyway, but only after a real account had
-    # already been provisioned on the shared production IBSng instance,
-    # leaving it orphaned with no local row pointing at it.
+    # Must come BEFORE the IBSng call: even though nothing at the DB
+    # level would reject the local insert any more, skipping this check
+    # would still provision a real (unwanted, limit-enforced) account on
+    # the shared production IBSng instance before finding out the trial
+    # should have been rejected.
     if is_trial and await has_used_trial(session, telegram_id):
         raise TrialAlreadyUsedError(f"telegram_id {telegram_id} already has a trial account")
 
