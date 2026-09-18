@@ -18,9 +18,11 @@ from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import CallbackQuery, ErrorEvent, Message
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
-logger = logging.getLogger(__name__)
+from app.db.session import async_session_maker
+from app.i18n.texts import t
+from app.services.bot_users import get_language
 
-_POOL_BUSY_MESSAGE = "⏳ The server is temporarily busy. Please try again shortly."
+logger = logging.getLogger(__name__)
 
 
 async def handle_pool_timeout(event: ErrorEvent) -> Any:
@@ -37,8 +39,15 @@ async def handle_pool_timeout(event: ErrorEvent) -> Any:
     logger.warning("DB connection pool exhausted (update_id=%s, chat_id=%s)", event.update.update_id, chat_id)
 
     if chat_id is not None:
+        # chat_id == telegram_id is safe here: PrivateChatOnlyMiddleware
+        # already guarantees every update reaching this handler is a 1:1 DM.
         try:
-            await event.update.bot.send_message(chat_id, _POOL_BUSY_MESSAGE)
+            async with async_session_maker() as session:
+                lang = (await get_language(session, chat_id)) or "en"
+        except Exception:
+            lang = "en"
+        try:
+            await event.update.bot.send_message(chat_id, t("pool_busy", lang))
         except Exception:
             logger.exception("Could not deliver the pool-busy message to chat_id=%s", chat_id)
     return True

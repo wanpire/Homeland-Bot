@@ -17,6 +17,8 @@ from aiogram.types import ErrorEvent, Message
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.bot.error_handlers import handle_pool_timeout
+from app.db.session import async_session_maker
+from app.services.bot_users import record_seen, set_language
 from tests.factories import make_message_update
 from tests.fakes.fake_bot_session import FakeBotSession
 
@@ -37,6 +39,32 @@ def _boom_dispatcher(exception: Exception) -> Any:
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.errors.register(handle_pool_timeout)
+    dp.include_router(router)
+    return dp
+
+
+def _boom_dispatcher_with_language(exception: Exception) -> Any:
+    """Same throwaway wiring as _boom_dispatcher, but also runs the real
+    LanguageMiddleware as an update outer_middleware - exactly how
+    build_dispatcher wires it in production. This is the only way to
+    empirically prove (or disprove) whether aiogram's ErrorsMiddleware
+    re-injects the same update's `data` dict (carrying `lang`, attached
+    by LanguageMiddleware earlier in that update's processing) into
+    handle_pool_timeout's kwargs."""
+    from aiogram import Dispatcher
+    from aiogram.fsm.storage.memory import MemoryStorage
+
+    from app.bot.middlewares.language import LanguageMiddleware
+
+    router = Router(name="test-explosive-handler-with-language")
+
+    @router.message()
+    async def _explode(message: Message) -> None:
+        raise exception
+
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.errors.register(handle_pool_timeout)
+    dp.update.outer_middleware(LanguageMiddleware())
     dp.include_router(router)
     return dp
 
@@ -73,3 +101,24 @@ async def test_production_dispatcher_registers_the_error_handler(dispatcher: Any
     proves main()'s wiring includes the error handler."""
     registered = [handler.callback for handler in dispatcher.errors.handlers]
     assert handle_pool_timeout in registered
+
+
+@pytest.mark.asyncio
+async def test_pool_timeout_sends_persian_message_for_fa_user(bot: Any, fake_session: FakeBotSession) -> None:
+    """Empirical proof of whether aiogram's ErrorsMiddleware re-injects the
+    triggering update's `data` dict (with `lang` set by LanguageMiddleware
+    earlier in that same update's processing) into handle_pool_timeout's
+    kwargs. If it doesn't, `data.get("lang")` is missing/empty at runtime
+    and this user gets the English fallback text instead - failing this
+    assertion."""
+    telegram_id = 4104
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    dp = _boom_dispatcher_with_language(PoolTimeoutError("pool exhausted"))
+    await dp.feed_update(bot, make_message_update(telegram_id, "boom"))
+
+    sent = [call for call in fake_session.calls if call[0] == "sendMessage"]
+    assert len(sent) == 1
+    assert "سرور موقتاً شلوغ است" in sent[0][1]["text"]
