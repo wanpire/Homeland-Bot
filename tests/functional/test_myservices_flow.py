@@ -476,3 +476,52 @@ async def test_myservices_detail_status_in_persian(
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert "وضعیت: ✅ فعال" in edited[0][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_myservices_list_shows_plan_name_in_persian(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+) -> None:
+    """Regression test: myservices_list_keyboard's button label must go
+    through plan_display_name(lang), not raw plan.name - a Persian user
+    must see the localized plan name on the services list, not English."""
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 721
+    await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    matching = next(b for b in all_buttons if "callback_data" in b and b["callback_data"].startswith("myservices:view:"))
+    assert "۲ هفته" in matching["text"]
+    assert "2 Weeks" not in matching["text"]
+
+
+@pytest.mark.asyncio
+async def test_myservices_detail_shows_plan_name_in_persian(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+) -> None:
+    """Regression test: _detail_text's heading must localize plan.name
+    via plan_display_name(lang) - previously it leaked raw English plan
+    names into an otherwise-Persian detail screen."""
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 722
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    text = edited[0][1]["text"]
+    assert "۲ هفته" in text
+    assert "2 Weeks" not in text

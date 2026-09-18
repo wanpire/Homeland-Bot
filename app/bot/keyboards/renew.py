@@ -12,7 +12,7 @@ from app.services.catalog import category_display_name, format_data_cap, format_
 def renew_service_keyboard(rows: list[tuple[VPNUser, Plan | None]], lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for vpn_user, plan in rows:
-        name = plan.name if plan is not None else vpn_user.ibsng_group
+        name = plan_display_name(plan, lang) if plan is not None else vpn_user.ibsng_group
         builder.button(text=name, callback_data=f"renew:service:{vpn_user.id}")
     builder.button(text=t("back_to_menu", lang), callback_data="menu:root")
     builder.adjust(1)

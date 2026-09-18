@@ -16,7 +16,7 @@ from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.i18n.texts import t
-from app.services.catalog import get_plan
+from app.services.catalog import get_plan, plan_display_name
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
 from app.services.tutorial_delivery import deliver_setup
@@ -45,7 +45,7 @@ async def myservices_list_cb(callback: CallbackQuery, lang: str) -> None:
 
 async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPNUser, lang: str) -> str:
     plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
-    name = plan.name if plan is not None else vpn_user.ibsng_group
+    name = plan_display_name(plan, lang) if plan is not None else vpn_user.ibsng_group
     status, expiry = await get_service_status(client, vpn_user.ibsng_username)
 
     if status == "active":

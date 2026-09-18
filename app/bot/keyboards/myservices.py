@@ -8,6 +8,7 @@ from app.db.models.tutorial_platform import TutorialPlatform
 from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 from app.i18n.texts import t
+from app.services.catalog import plan_display_name
 
 _STATUS_KEYS = {
     "active": "status_active",
@@ -29,7 +30,7 @@ def myservices_empty_keyboard(lang: str) -> InlineKeyboardMarkup:
 def myservices_list_keyboard(rows: list[tuple[VPNUser, Plan | None, str]], lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for vpn_user, plan, status in rows:
-        name = plan.name if plan is not None else vpn_user.ibsng_group
+        name = plan_display_name(plan, lang) if plan is not None else vpn_user.ibsng_group
         status_text = t(_STATUS_KEYS.get(status, "status_unknown"), lang)
         builder.button(
             text=f"{name} — {status_text}",

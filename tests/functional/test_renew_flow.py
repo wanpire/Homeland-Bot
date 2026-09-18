@@ -521,3 +521,79 @@ async def test_renew_summary_in_persian(dispatcher: Any, bot: Any, fake_session:
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert "تمدید" in edited[0][1]["text"]
     assert "قیمت:" in edited[0][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_renew_list_shows_current_plan_name_in_persian(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """Regression test: renew_service_keyboard's button label for the
+    CURRENT service must go through plan_display_name(lang), not raw
+    plan.name - a Persian user must see the localized plan name on the
+    'which service do you want to renew?' list, not English."""
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 850
+    await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:renew"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "۲ هفته" in buttons
+    assert "2 Weeks" not in buttons
+
+
+@pytest.mark.asyncio
+async def test_renew_category_picker_shows_current_plan_name_in_persian(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """Regression test: _service_display_name must localize the CURRENT
+    service's plan name via plan_display_name(lang) before it's
+    interpolated into renew_pick_category - previously it returned raw
+    plan.name, leaking English into an otherwise-Persian screen."""
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 851
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:service:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    text = edited[0][1]["text"]
+    assert "۲ هفته" in text
+    assert "2 Weeks" not in text
+
+
+@pytest.mark.asyncio
+async def test_renew_summary_shows_current_plan_name_in_persian(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """Regression test: renew_summary_heading's `current=` argument must
+    be the localized current plan name - previously only the NEW plan
+    (via plan_display_name) and category were localized while the
+    CURRENT plan name stayed in English."""
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 852
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="2 Weeks")
+    new_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:plan:{service.id}:{new_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    text = edited[0][1]["text"]
+    assert "۲ هفته" in text
+    assert "2 Weeks" not in text

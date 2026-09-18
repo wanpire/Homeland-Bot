@@ -74,9 +74,9 @@ async def _not_found(callback: CallbackQuery, lang: str) -> None:
     await callback.answer()
 
 
-async def _service_display_name(session: AsyncSession, vpn_user: VPNUser) -> str:
+async def _service_display_name(session: AsyncSession, vpn_user: VPNUser, lang: str) -> str:
     plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
-    return plan.name if plan is not None else vpn_user.ibsng_group
+    return plan_display_name(plan, lang) if plan is not None else vpn_user.ibsng_group
 
 
 @router.callback_query(F.data == "menu:renew")
@@ -111,7 +111,7 @@ async def renew_service_cb(callback: CallbackQuery, lang: str) -> None:
         if vpn_user is None:
             await _not_found(callback, lang)
             return
-        name = await _service_display_name(session, vpn_user)
+        name = await _service_display_name(session, vpn_user, lang)
 
     text = t("renew_pick_category", lang, name=name)
     if callback.message is not None:
@@ -134,7 +134,7 @@ async def renew_category_cb(callback: CallbackQuery, lang: str) -> None:
         if vpn_user is None:
             await _not_found(callback, lang)
             return
-        name = await _service_display_name(session, vpn_user)
+        name = await _service_display_name(session, vpn_user, lang)
 
         category = parts[3] if len(parts) > 3 else ""
         if category not in _RENEW_CATEGORIES:
@@ -204,7 +204,7 @@ async def renew_plan_cb(callback: CallbackQuery, lang: str) -> None:
             await callback.answer()
             return
 
-        current_name = await _service_display_name(session, vpn_user)
+        current_name = await _service_display_name(session, vpn_user, lang)
         text = await _renew_summary_text(session, current_name, plan, lang)
 
     if callback.message is not None:
