@@ -411,6 +411,32 @@ async def test_renew_confirm_shows_coming_soon_and_does_not_mutate_service(
 
 
 @pytest.mark.asyncio
+async def test_renew_confirm_shows_below_minimum_message(
+    dispatcher: Any,
+    bot: Any,
+    fake_session: FakeBotSession,
+    seeded_catalog: dict,
+    ibsng_server: FakeIBSngServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.payments import nowpayments
+
+    telegram_id = 828
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
+    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async def _too_small(*, order_id: str, amount, description: str):
+        raise nowpayments.PaymentBelowMinimumError("simulated below-minimum")
+
+    monkeypatch.setattr(nowpayments, "create_invoice", _too_small)
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "too low" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_renew_confirm_not_found_shows_gone_message(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:

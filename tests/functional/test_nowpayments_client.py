@@ -17,6 +17,14 @@ class _FakeResponse:
         return self._json_data
 
 
+async def _noop_check_minimum_amount(amount_usd: Decimal) -> None:
+    """create_invoice now calls check_minimum_amount before posting -
+    every test below that isn't specifically about that check patches
+    it out to a no-op, so it keeps testing only create_invoice's own
+    behavior (the POST /invoice call), not min-amount lookups."""
+    return None
+
+
 @pytest.mark.asyncio
 async def test_create_invoice_returns_url_and_payment_id(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services.payments import nowpayments
@@ -30,6 +38,7 @@ async def test_create_invoice_returns_url_and_payment_id(monkeypatch: pytest.Mon
         return _FakeResponse(200, {"invoice_url": "https://nowpayments.io/payment/abc", "id": "np-123"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _noop_check_minimum_amount)
 
     invoice_url, payment_id = await nowpayments.create_invoice(
         order_id="42", amount=Decimal("5.00"), description="Homeland: 1 Month",
@@ -63,6 +72,7 @@ async def test_create_invoice_raises_on_api_error(monkeypatch: pytest.MonkeyPatc
         return _FakeResponse(500, text="internal error")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _noop_check_minimum_amount)
 
     with pytest.raises(nowpayments.NowPaymentsError):
         await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
@@ -76,6 +86,7 @@ async def test_create_invoice_raises_on_missing_fields(monkeypatch: pytest.Monke
         return _FakeResponse(200, {"invoice_url": "https://nowpayments.io/payment/abc"})  # missing "id"
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _noop_check_minimum_amount)
 
     with pytest.raises(nowpayments.NowPaymentsError):
         await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
@@ -89,6 +100,7 @@ async def test_create_invoice_raises_nowpayments_error_on_network_failure(monkey
         raise httpx.ConnectError("connection refused")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _noop_check_minimum_amount)
 
     with pytest.raises(nowpayments.NowPaymentsError):
         await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
@@ -108,6 +120,7 @@ async def test_create_invoice_raises_nowpayments_error_on_non_json_response(monk
         return _NonJsonResponse()
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _noop_check_minimum_amount)
 
     with pytest.raises(nowpayments.NowPaymentsError):
         await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
@@ -127,6 +140,7 @@ async def test_create_invoice_includes_optional_callback_and_success_urls(monkey
         return _FakeResponse(200, {"invoice_url": "https://nowpayments.io/payment/abc", "id": "np-1"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _noop_check_minimum_amount)
 
     await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
 
@@ -146,6 +160,7 @@ async def test_create_invoice_omits_optional_urls_when_unset(monkeypatch: pytest
         return _FakeResponse(200, {"invoice_url": "https://nowpayments.io/payment/abc", "id": "np-1"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _noop_check_minimum_amount)
 
     await nowpayments.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
 
@@ -194,6 +209,178 @@ def test_verify_ipn_signature_rejects_malformed_json() -> None:
     from app.services.payments import nowpayments
 
     assert nowpayments.verify_ipn_signature(b"not json", "abc123", "secret") is False
+
+
+@pytest.mark.asyncio
+async def test_get_min_amount_returns_fiat_equivalent_not_min_amount(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The two fields are NOT interchangeable - min_amount is in the
+    crypto's own units (e.g. LTC), fiat_equivalent is USD. This must
+    read fiat_equivalent."""
+    from app.services.payments import nowpayments
+
+    async def _fake_get(self: httpx.AsyncClient, url: str, *, params: dict[str, str], headers: dict[str, str]) -> _FakeResponse:
+        return _FakeResponse(200, {"currency_from": "ltc", "currency_to": "usd", "min_amount": 0.21, "fiat_equivalent": 12.08})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    result = await nowpayments.get_min_amount(currency_from="ltc")
+
+    assert result == Decimal("12.08")
+
+
+@pytest.mark.asyncio
+async def test_get_min_amount_raises_when_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import get_settings
+    from app.services.payments import nowpayments
+
+    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
+
+    with pytest.raises(nowpayments.PaymentProviderNotConfiguredError):
+        await nowpayments.get_min_amount(currency_from="ltc")
+
+
+@pytest.mark.asyncio
+async def test_get_min_amount_raises_on_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_get(self: httpx.AsyncClient, url: str, *, params: dict[str, str], headers: dict[str, str]) -> _FakeResponse:
+        return _FakeResponse(404, text='{"message":"Currency not found"}')
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    with pytest.raises(nowpayments.NowPaymentsError):
+        await nowpayments.get_min_amount(currency_from="bogus")
+
+
+@pytest.mark.asyncio
+async def test_check_minimum_amount_passes_when_amount_clears_every_currency(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_min(*, currency_from: str, currency_to: str = "usd") -> Decimal:
+        return Decimal("5.00")
+
+    monkeypatch.setattr(nowpayments, "get_min_amount", _fake_min)
+
+    await nowpayments.check_minimum_amount(Decimal("29.00"))  # no raise
+
+
+@pytest.mark.asyncio
+async def test_check_minimum_amount_passes_when_amount_clears_at_least_one_currency(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only one of the 4 accepted coins needs to clear the bar - the
+    customer can still pick that coin on NOWPayments' hosted page."""
+    from app.services.payments import nowpayments
+
+    async def _fake_min(*, currency_from: str, currency_to: str = "usd") -> Decimal:
+        return Decimal("2.00") if currency_from == "ltc" else Decimal("12.00")
+
+    monkeypatch.setattr(nowpayments, "get_min_amount", _fake_min)
+
+    await nowpayments.check_minimum_amount(Decimal("5.00"))  # no raise - clears ltc's minimum
+
+
+@pytest.mark.asyncio
+async def test_check_minimum_amount_raises_when_below_every_currency(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_min(*, currency_from: str, currency_to: str = "usd") -> Decimal:
+        return Decimal("11.52")
+
+    monkeypatch.setattr(nowpayments, "get_min_amount", _fake_min)
+
+    with pytest.raises(nowpayments.PaymentBelowMinimumError):
+        await nowpayments.check_minimum_amount(Decimal("3.00"))
+
+
+@pytest.mark.asyncio
+async def test_check_minimum_amount_fails_open_when_every_lookup_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A NOWPayments outage on this one endpoint must never block a
+    purchase create_invoice could still complete."""
+    from app.services.payments import nowpayments
+
+    async def _fake_min(*, currency_from: str, currency_to: str = "usd") -> Decimal:
+        raise nowpayments.NowPaymentsError("simulated outage")
+
+    monkeypatch.setattr(nowpayments, "get_min_amount", _fake_min)
+
+    await nowpayments.check_minimum_amount(Decimal("3.00"))  # no raise
+
+
+@pytest.mark.asyncio
+async def test_check_minimum_amount_fails_open_when_some_lookups_error_and_rest_reject(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Even one unknown minimum (an errored lookup) is enough to avoid
+    blocking - only a confirmed reject-by-every-known-minimum blocks."""
+    from app.services.payments import nowpayments
+
+    async def _fake_min(*, currency_from: str, currency_to: str = "usd") -> Decimal:
+        if currency_from == "ltc":
+            raise nowpayments.NowPaymentsError("simulated outage")
+        return Decimal("11.52")
+
+    monkeypatch.setattr(nowpayments, "get_min_amount", _fake_min)
+
+    with pytest.raises(nowpayments.PaymentBelowMinimumError):
+        await nowpayments.check_minimum_amount(Decimal("3.00"))
+
+
+@pytest.mark.asyncio
+async def test_create_invoice_raises_payment_below_minimum(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_check(amount_usd: Decimal) -> None:
+        raise nowpayments.PaymentBelowMinimumError("too small")
+
+    async def _fake_post(self: httpx.AsyncClient, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> _FakeResponse:
+        raise AssertionError("must not POST /invoice when the amount is below minimum")
+
+    monkeypatch.setattr(nowpayments, "check_minimum_amount", _fake_check)
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    with pytest.raises(nowpayments.PaymentBelowMinimumError):
+        await nowpayments.create_invoice(order_id="1", amount=Decimal("3.00"), description="x")
+
+
+@pytest.mark.asyncio
+async def test_validate_payout_address_accepts_a_valid_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_post(self: httpx.AsyncClient, url: str, *, json: dict[str, str], headers: dict[str, str]) -> _FakeResponse:
+        return _FakeResponse(200, text="OK")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    is_valid, error = await nowpayments.validate_payout_address(address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", currency="usdttrc20")
+
+    assert is_valid is True
+    assert error is None
+
+
+@pytest.mark.asyncio
+async def test_validate_payout_address_rejects_an_invalid_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_post(self: httpx.AsyncClient, url: str, *, json: dict[str, str], headers: dict[str, str]) -> _FakeResponse:
+        return _FakeResponse(
+            400,
+            {"status": False, "statusCode": 400, "code": "BAD_ADDRESS_VALIDATION_REQUEST", "message": "Invalid payout address: USDTTRC20 bogus"},
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    is_valid, error = await nowpayments.validate_payout_address(address="bogus", currency="usdttrc20")
+
+    assert is_valid is False
+    assert error == "Invalid payout address: USDTTRC20 bogus"
+
+
+@pytest.mark.asyncio
+async def test_validate_payout_address_raises_when_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import get_settings
+    from app.services.payments import nowpayments
+
+    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
+
+    with pytest.raises(nowpayments.PaymentProviderNotConfiguredError):
+        await nowpayments.validate_payout_address(address="x", currency="usdttrc20")
 
 
 def test_verify_ipn_signature_rejects_blank_secret() -> None:

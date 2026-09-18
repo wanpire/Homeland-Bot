@@ -21,7 +21,7 @@ from app.db.session import async_session_maker
 from app.i18n.texts import t
 from app.services.catalog import CATEGORIES, categories_with_active_plans, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
 from app.services.discounts import discount_price, find_best_auto_discount
-from app.services.payments.nowpayments import NowPaymentsError, PaymentProviderNotConfiguredError
+from app.services.payments.nowpayments import NowPaymentsError, PaymentBelowMinimumError, PaymentProviderNotConfiguredError
 from app.services.payments.service import create_crypto_payment
 from app.services.vpn_users import get_owned_vpn_user, list_renewable_services
 
@@ -262,6 +262,11 @@ async def renew_confirm_cb(callback: CallbackQuery, lang: str) -> None:
         except PaymentProviderNotConfiguredError:
             if callback.message is not None:
                 await callback.message.edit_text(t("payment_coming_soon_renew", lang), reply_markup=back_to_menu_keyboard(lang))
+            await callback.answer()
+            return
+        except PaymentBelowMinimumError:
+            if callback.message is not None:
+                await callback.message.edit_text(t("payment_below_minimum", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
         except NowPaymentsError:

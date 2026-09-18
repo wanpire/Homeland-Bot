@@ -17,3 +17,10 @@ class EditReminderStates(StatesGroup):
 
 class EditPlanPriceStates(StatesGroup):
     price = State()
+
+
+class EditCryptoSettlementStates(StatesGroup):
+    """Network is chosen via inline buttons (a small fixed set), stored
+    in FSM data by the handler that sets this state - only the address
+    itself needs a text-input state."""
+    address = State()

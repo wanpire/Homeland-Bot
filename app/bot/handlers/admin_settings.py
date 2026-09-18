@@ -14,6 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters.admin import IsFullAdmin
 from app.bot.keyboards.admin_settings import back_to_settings_keyboard, settings_edit_cancel_keyboard
+from app.bot.keyboards.crypto_settlement import (
+    NETWORK_LABELS,
+    crypto_network_choice_keyboard,
+    crypto_settlement_edit_cancel_keyboard,
+    crypto_settlement_status_keyboard,
+)
 from app.bot.keyboards.manage_plans import (
     manage_plans_detail_keyboard,
     manage_plans_list_keyboard,
@@ -21,6 +27,7 @@ from app.bot.keyboards.manage_plans import (
     plan_detail_text,
 )
 from app.bot.states.admin_settings import (
+    EditCryptoSettlementStates,
     EditMandatoryChannelStates,
     EditPlanPriceStates,
     EditReminderStates,
@@ -32,6 +39,8 @@ from app.services.catalog import format_price_usd, get_plan, list_plans, update_
 from app.services.groups import sync_groups
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
+from app.services.payments import nowpayments
+from app.services.payments.nowpayments import PaymentProviderNotConfiguredError
 from app.services.reminders import DEFAULT_DAYS_BEFORE
 from app.services.mandatory_channel import (
     get_mandatory_channels,
@@ -440,3 +449,106 @@ async def manage_plan_toggle_active_cb(callback: CallbackQuery, state: FSMContex
     if callback.message is not None and updated is not None:
         await callback.message.edit_text(plan_detail_text(updated), reply_markup=manage_plans_detail_keyboard(updated))
     await callback.answer()
+
+
+_CRYPTO_INVALID_ADDRESS_TEXT = "⚠️ {reason}\n\nSend a valid {network} address:"
+
+
+async def _crypto_settlement_status_text(session: AsyncSession) -> str:
+    address = await get_config(session, "crypto_settlement_address")
+    network = await get_config(session, "crypto_settlement_network")
+    body = (
+        "💳 <b>Crypto Settlement Address</b>\n\n"
+        "Internal reference record only — never wired into NOWPayments, "
+        "purely for the team to know where payouts are meant to land."
+    )
+    if address is None or network is None:
+        return f"{body}\n\nNo settlement address configured yet."
+    label = NETWORK_LABELS.get(network, html.escape(network))
+    return f"{body}\n\nNetwork: {label}\nAddress: <code>{html.escape(address)}</code>"
+
+
+@router.callback_query(F.data == "adm:settings:crypto")
+async def crypto_settlement_status_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    async with async_session_maker() as session:
+        text = await _crypto_settlement_status_text(session)
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=crypto_settlement_status_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:settings:crypto:edit")
+async def crypto_settlement_edit_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.edit_text("Choose the network:", reply_markup=crypto_network_choice_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^adm:settings:crypto:network:(.+)$"))
+async def crypto_settlement_network_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    network = callback.data.split(":", 4)[-1]
+    if network not in NETWORK_LABELS:
+        if callback.message is not None:
+            await callback.message.edit_text("⚠️ Unknown network.", reply_markup=crypto_network_choice_keyboard())
+        await callback.answer()
+        return
+    await state.set_state(EditCryptoSettlementStates.address)
+    await state.update_data(network=network)
+    if callback.message is not None:
+        await callback.message.edit_text(
+            f"Send the {NETWORK_LABELS[network]} address:",
+            reply_markup=crypto_settlement_edit_cancel_keyboard(),
+        )
+    await callback.answer()
+
+
+@router.message(EditCryptoSettlementStates.address)
+async def crypto_settlement_receive_address(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    network = data.get("network")
+    if network not in NETWORK_LABELS:
+        await state.clear()
+        await message.answer("⚠️ Something went wrong — please start again.", reply_markup=back_to_settings_keyboard())
+        return
+
+    address = (message.text or "").strip()
+    label = NETWORK_LABELS[network]
+    if not address:
+        await message.answer(
+            _CRYPTO_INVALID_ADDRESS_TEXT.format(reason="Send a non-empty value.", network=label),
+            reply_markup=crypto_settlement_edit_cancel_keyboard(),
+        )
+        return
+
+    try:
+        is_valid, error = await nowpayments.validate_payout_address(address=address, currency=network)
+    except PaymentProviderNotConfiguredError:
+        await state.clear()
+        await message.answer(
+            "⚠️ NOWPayments isn't configured, so the address can't be validated right now.",
+            reply_markup=back_to_settings_keyboard(),
+        )
+        return
+    except nowpayments.NowPaymentsError:
+        logger.error("NOWPayments address validation failed for network %s", network, exc_info=True)
+        await message.answer(
+            "⚠️ Couldn't reach NOWPayments to validate this address right now. Please try again shortly.",
+            reply_markup=crypto_settlement_edit_cancel_keyboard(),
+        )
+        return
+
+    if not is_valid:
+        await message.answer(
+            _CRYPTO_INVALID_ADDRESS_TEXT.format(reason=error or "Invalid address.", network=label),
+            reply_markup=crypto_settlement_edit_cancel_keyboard(),
+        )
+        return
+
+    async with async_session_maker() as session:
+        await set_config(session, "crypto_settlement_address", address)
+        await set_config(session, "crypto_settlement_network", network)
+        text = await _crypto_settlement_status_text(session)
+    await state.clear()
+    await message.answer(f"✅ Settlement address saved.\n\n{text}", reply_markup=crypto_settlement_status_keyboard())

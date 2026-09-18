@@ -46,6 +46,11 @@ TEXTS: dict[str, dict[str, str]] = {
             "⚠️ We couldn't reach the payment provider right now. Please try again "
             "in a few minutes, or contact support if this keeps happening."
         ),
+        "payment_below_minimum": (
+            "⚠️ This plan's price is too low for a crypto payment right now — the "
+            "network minimum is higher than the plan price. Please contact support, "
+            "or try a higher-priced plan."
+        ),
         "pay_with_crypto_button": "₿ Pay with Crypto",
         "open_payment_page_button": "🔗 Open Payment Page",
         "back_button": "⬅️ Back",
@@ -193,6 +198,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "payment_unavailable": (
             "⚠️ در حال حاضر امکان اتصال به درگاه پرداخت وجود ندارد. لطفاً چند دقیقه دیگر "
             "دوباره امتحان کنید یا در صورت تکرار با پشتیبانی تماس بگیرید."
+        ),
+        "payment_below_minimum": (
+            "⚠️ قیمت این پلن برای پرداخت با ارز دیجیتال در حال حاضر خیلی پایین است — "
+            "حداقل مبلغ شبکه بیشتر از قیمت پلن است. لطفاً با پشتیبانی تماس بگیرید یا "
+            "پلن با قیمت بالاتر را امتحان کنید."
         ),
         "pay_with_crypto_button": "₿ پرداخت با ارز دیجیتال",
         "open_payment_page_button": "🔗 باز کردن صفحه پرداخت",

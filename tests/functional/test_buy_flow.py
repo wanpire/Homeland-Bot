@@ -364,6 +364,28 @@ async def test_buy_confirm_shows_unavailable_message_on_api_error(
 
 
 @pytest.mark.asyncio
+async def test_buy_confirm_shows_below_minimum_message(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trip/Scroll's lower tiers are currently below every accepted coin's
+    real minimum - this is the exact production scenario check_minimum_amount
+    exists for."""
+    from app.services.payments import nowpayments
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async def _too_small(*, order_id: str, amount, description: str):
+        raise nowpayments.PaymentBelowMinimumError("simulated below-minimum")
+
+    monkeypatch.setattr(nowpayments, "create_invoice", _too_small)
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    assert "too low" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_buy_price_summary_shows_crypto_button(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict,
 ) -> None:
