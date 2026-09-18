@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import datetime as dt
 import html
+import logging
 import re
+from decimal import Decimal, InvalidOperation
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -11,9 +14,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters.admin import IsFullAdmin
 from app.bot.keyboards.admin_settings import back_to_settings_keyboard, settings_edit_cancel_keyboard
-from app.bot.states.admin_settings import EditMandatoryChannelStates, EditReminderStates, EditSupportStates
+from app.bot.keyboards.manage_plans import (
+    manage_plans_detail_keyboard,
+    manage_plans_list_keyboard,
+    manage_plans_price_edit_cancel_keyboard,
+    plan_detail_text,
+)
+from app.bot.states.admin_settings import (
+    EditMandatoryChannelStates,
+    EditPlanPriceStates,
+    EditReminderStates,
+    EditSupportStates,
+)
 from app.db.session import async_session_maker
 from app.services.app_config import get_config, set_config
+from app.services.catalog import format_price_usd, get_plan, list_plans, update_plan
 from app.services.groups import sync_groups
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
@@ -32,6 +47,12 @@ router.callback_query.filter(IsFullAdmin())
 _SUPPORT_PROMPT_TEXT = "Send the support contact (e.g. @homeland_support):"
 _EMPTY_SUPPORT_TEXT = "⚠️ Send a non-empty value."
 _SYNC_FAILED_TEXT = "⚠️ Could not reach IBSng to sync groups. Please try again shortly."
+
+logger = logging.getLogger(__name__)
+
+_MANAGE_PLANS_CATEGORY_ORDER = ("trial", "scroll", "stream", "trip")
+_MAX_PLAN_PRICE = Decimal("1000")
+_INVALID_PRICE_TEXT = "⚠️ Send a valid price — a positive number under $1000 (e.g. 12.50)."
 
 
 @router.callback_query(F.data == "adm:settings:support")
@@ -284,4 +305,123 @@ async def settings_toggle_trial_limit_cb(callback: CallbackQuery) -> None:
         text = await _trial_limit_status_text(session)
     if callback.message is not None:
         await callback.message.edit_text(text, reply_markup=_trial_limit_settings_keyboard(enabled=enabled))
+    await callback.answer()
+
+
+async def _grouped_plans(session: AsyncSession) -> dict[str, list]:
+    plans = await list_plans(session, active_only=False)
+    grouped: dict[str, list] = {category: [] for category in _MANAGE_PLANS_CATEGORY_ORDER}
+    for plan in plans:
+        grouped.setdefault(plan.category, []).append(plan)
+    return grouped
+
+
+@router.callback_query(F.data == "adm:settings:plans")
+async def manage_plans_list_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    async with async_session_maker() as session:
+        grouped = await _grouped_plans(session)
+    if callback.message is not None:
+        await callback.message.edit_text(
+            "💰 <b>Manage Plans</b>\n\nTap a plan to edit its price or active status.",
+            reply_markup=manage_plans_list_keyboard(grouped),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^adm:settings:plan:\d+$"))
+async def manage_plan_detail_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    plan_id = int(callback.data.split(":")[-1])
+    async with async_session_maker() as session:
+        plan = await get_plan(session, plan_id)
+    if plan is None:
+        if callback.message is not None:
+            await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+        await callback.answer()
+        return
+    if callback.message is not None:
+        await callback.message.edit_text(plan_detail_text(plan), reply_markup=manage_plans_detail_keyboard(plan))
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^adm:settings:plan:\d+:price$"))
+async def manage_plan_edit_price_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    plan_id = int(callback.data.split(":")[-2])
+    async with async_session_maker() as session:
+        plan = await get_plan(session, plan_id)
+    if plan is None:
+        if callback.message is not None:
+            await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+        await callback.answer()
+        return
+    await state.set_state(EditPlanPriceStates.price)
+    await state.update_data(plan_id=plan_id)
+    if callback.message is not None:
+        await callback.message.edit_text(
+            f"Current price for {plan.name} ({plan.category}): {format_price_usd(plan.price_usd)}\n\n"
+            "Send the new price (e.g. 12.50):",
+            reply_markup=manage_plans_price_edit_cancel_keyboard(plan_id),
+        )
+    await callback.answer()
+
+
+@router.message(EditPlanPriceStates.price)
+async def manage_plan_receive_price(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    plan_id = data["plan_id"]
+    raw = (message.text or "").strip()
+
+    try:
+        new_price = Decimal(raw).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        await message.answer(_INVALID_PRICE_TEXT, reply_markup=manage_plans_price_edit_cancel_keyboard(plan_id))
+        return
+    if new_price <= 0 or new_price >= _MAX_PLAN_PRICE:
+        await message.answer(_INVALID_PRICE_TEXT, reply_markup=manage_plans_price_edit_cancel_keyboard(plan_id))
+        return
+
+    async with async_session_maker() as session:
+        plan = await get_plan(session, plan_id)
+        if plan is None:
+            await state.clear()
+            await message.answer("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+            return
+        old_price = plan.price_usd
+        updated = await update_plan(session, plan_id, price_usd=new_price)
+
+    logger.info(
+        "admin_price_change",
+        extra={
+            "admin_telegram_id": message.from_user.id if message.from_user is not None else None,
+            "plan_id": plan_id,
+            "old_price": str(old_price),
+            "new_price": str(new_price),
+            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+        },
+    )
+
+    await state.clear()
+    if updated is not None:
+        await message.answer(
+            f"✅ Price updated to {format_price_usd(updated.price_usd)}.\n\n{plan_detail_text(updated)}",
+            reply_markup=manage_plans_detail_keyboard(updated),
+        )
+
+
+@router.callback_query(F.data.regexp(r"^adm:settings:plan:\d+:toggle$"))
+async def manage_plan_toggle_active_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    plan_id = int(callback.data.split(":")[-2])
+    async with async_session_maker() as session:
+        plan = await get_plan(session, plan_id)
+        if plan is None:
+            if callback.message is not None:
+                await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+            await callback.answer()
+            return
+        updated = await update_plan(session, plan_id, is_active=not plan.is_active)
+
+    if callback.message is not None and updated is not None:
+        await callback.message.edit_text(plan_detail_text(updated), reply_markup=manage_plans_detail_keyboard(updated))
     await callback.answer()

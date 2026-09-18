@@ -13,3 +13,7 @@ class EditMandatoryChannelStates(StatesGroup):
 
 class EditReminderStates(StatesGroup):
     days_before = State()
+
+
+class EditPlanPriceStates(StatesGroup):
+    price = State()
