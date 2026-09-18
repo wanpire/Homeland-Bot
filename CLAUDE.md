@@ -4,7 +4,7 @@ Homeland - a Telegram bot selling reverse VPN (Iran-based IPs) in USD to
 Iranian customers abroad. Bootstrapped from AloBot (`/Users/peyman/telegram-bot`,
 a sibling project selling the opposite direction of VPN in Toman), trimmed
 to a flat catalog (Scroll/Stream categories + a trial tier) with
-English-only text and Stripe/crypto payments. Shares one IBSng instance
+bilingual (fa/en) customer-facing text and Stripe/crypto payments. Shares one IBSng instance
 with AloBot - see the group-namespace isolation note below, non-negotiable.
 See `docs/superpowers/specs/2026-09-14-homeland-bot-design.md` for the full
 design and `docs/superpowers/plans/` for implementation plans.

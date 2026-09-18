@@ -1,6 +1,6 @@
 ---
 name: aiogram-menu-flow-conventions
-description: Homeland's aiogram menu/flow UX conventions - English-only copy, mandatory Back/Cancel buttons, colon-segmented callback-data namespacing, one-router-per-domain wiring, and FSM state hygiene on navigation. Use when adding or modifying any bot handler, keyboard, or FSM flow under app/bot/.
+description: Homeland's aiogram menu/flow UX conventions - bilingual customer-facing copy, English-only admin copy, mandatory Back/Cancel buttons, colon-segmented callback-data namespacing, one-router-per-domain wiring, and FSM state hygiene on navigation. Use when adding or modifying any bot handler, keyboard, or FSM flow under app/bot/.
 ---
 
 # aiogram Menu/Flow Conventions (Homeland)
