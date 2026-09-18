@@ -4,18 +4,16 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards.language import language_choice_keyboard
+from app.bot.keyboards.language import show_language_chooser
 from app.bot.keyboards.menus import main_menu, support_keyboard
 from app.config import get_settings
 from app.db.session import async_session_maker
-from app.i18n.texts import CHOOSE_LANGUAGE_TEXT, t
+from app.i18n.texts import t
 from app.services.admin_users import has_level
 from app.services.app_config import get_config
 from app.services.bot_users import set_language
 
 router = Router(name="users")
-
-PLACEHOLDER_TEXT = "🚧 This feature is coming soon."
 
 _PLACEHOLDER_CALLBACKS = {
     "menu:tutorials",
@@ -66,8 +64,7 @@ async def menu_support_cb(callback: CallbackQuery, lang: str) -> None:
 
 @router.callback_query(F.data == "menu:language")
 async def menu_language_cb(callback: CallbackQuery) -> None:
-    if callback.message is not None:
-        await callback.message.edit_text(CHOOSE_LANGUAGE_TEXT, reply_markup=language_choice_keyboard())
+    await show_language_chooser(callback)
     await callback.answer()
 
 
@@ -80,5 +77,12 @@ async def lang_set_cb(callback: CallbackQuery) -> None:
         await set_language(session, callback.from_user.id, lang)
     if callback.message is not None:
         await callback.message.edit_text(t("language_updated", lang))
-        await send_main_menu(callback.message, lang=lang)
+        # Deliberately not routed through send_main_menu(callback.message,
+        # ...): callback.message is the BOT's own message being edited, so
+        # its from_user is the bot, not the customer - send_main_menu's
+        # is_admin lookup would key off the bot's id and always resolve to
+        # False. Derive is_admin from the real user (callback.from_user)
+        # instead.
+        is_admin = await _is_admin(callback.from_user.id)
+        await callback.message.answer(t("welcome", lang), reply_markup=main_menu(is_admin=is_admin, lang=lang))
     await callback.answer()

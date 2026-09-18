@@ -67,13 +67,15 @@ async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPN
     except IBSngError:
         password = None
     password_line = (
-        f"Password: <code>{password}</code>" if password is not None else t("password_unavailable", lang)
+        f"{t('password_label', lang)}: <code>{password}</code>"
+        if password is not None
+        else t("password_unavailable", lang)
     )
 
     return (
         f"🔑 <b>{name}</b>\n"
         f"{status_line}\n\n"
-        f"Username: <code>{vpn_user.ibsng_username}</code>\n"
+        f"{t('username_label', lang)}: <code>{vpn_user.ibsng_username}</code>\n"
         f"{password_line}"
     )
 

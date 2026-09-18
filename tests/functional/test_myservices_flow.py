@@ -525,3 +525,29 @@ async def test_myservices_detail_shows_plan_name_in_persian(
     text = edited[0][1]["text"]
     assert "۲ هفته" in text
     assert "2 Weeks" not in text
+
+
+@pytest.mark.asyncio
+async def test_myservices_detail_labels_are_persian_for_persian_user(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+) -> None:
+    """Regression test: _detail_text used to hardcode "Username:" and
+    "Password:" in English on the success path even for a Persian user,
+    while the failure path (password_unavailable) was already correctly
+    Persian - an inconsistently-translated screen. Must show "نام کاربری:"
+    (Username) not "Username:" for a Persian user."""
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 723
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    text = edited[0][1]["text"]
+    assert "نام کاربری:" in text
+    assert "Username:" not in text

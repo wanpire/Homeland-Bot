@@ -31,7 +31,7 @@ def renew_category_keyboard(vpn_user_id: int, lang: str) -> InlineKeyboardMarkup
     builder = InlineKeyboardBuilder()
     builder.button(text=category_display_name("scroll", lang), callback_data=f"renew:category:{vpn_user_id}:scroll")
     builder.button(text=category_display_name("stream", lang), callback_data=f"renew:category:{vpn_user_id}:stream")
-    builder.button(text=t("back_to_service_button", lang), callback_data="menu:renew")
+    builder.button(text=t("back_to_list_button", lang), callback_data="menu:renew")
     builder.adjust(2, 1)
     return builder.as_markup()
 

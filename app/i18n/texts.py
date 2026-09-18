@@ -78,6 +78,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "status_line_expired": "Status: ⛔ Expired on {date} UTC",
         "status_line_pending": "Status: ⏳ Not yet activated — validity starts on first connection.",
         "status_line_unknown": "Status: ⚠️ Couldn't check status right now.",
+        "username_label": "Username",
+        "password_label": "Password",
         "password_unavailable": "Password: unavailable — contact support",
         "protocol_prompt": "🔌 Which protocol do you want to use?",
         "platform_prompt": "📱 Which device do you want to set it up on?",
@@ -217,6 +219,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "status_line_expired": "وضعیت: ⛔ منقضی‌شده در {date} UTC",
         "status_line_pending": "وضعیت: ⏳ هنوز فعال نشده — اعتبار از اولین اتصال شروع می‌شود.",
         "status_line_unknown": "وضعیت: ⚠️ در حال حاضر امکان بررسی وضعیت وجود ندارد.",
+        "username_label": "نام کاربری",
+        "password_label": "رمز عبور",
         "password_unavailable": "رمز عبور: در دسترس نیست — با پشتیبانی تماس بگیرید",
         "protocol_prompt": "🔌 کدام پروتکل را می‌خواهید استفاده کنید؟",
         "platform_prompt": "📱 روی کدام دستگاه می‌خواهید تنظیم کنید؟",
@@ -313,6 +317,6 @@ def t(key: str, lang: str, **kwargs: object) -> str:
         return key
     try:
         return template.format(**kwargs)
-    except (KeyError, IndexError):
+    except (KeyError, IndexError, ValueError):
         logger.warning("i18n key %r formatting failed with kwargs=%r", key, kwargs)
         return template

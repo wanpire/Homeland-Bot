@@ -16,8 +16,8 @@ separate project, bootstrapped from the existing AloBot codebase
 SQLAlchemy 2.0 + Alembic / Redis), which sells the opposite direction of
 VPN in Toman to customers inside Iran. Homeland reuses AloBot's proven
 architecture and its IBSng integration pattern, but trims its feature set
-to a much smaller, English-only, USD product and adds data-quota tracking,
-which AloBot has never needed.
+to a much smaller, USD product with bilingual (fa/en) customer-facing text
+and adds data-quota tracking, which AloBot has never needed.
 
 Backend accounting/provisioning is IBSng, the same software AloBot
 integrates with, running on the same shared instance (confirmed: same

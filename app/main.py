@@ -41,8 +41,17 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.errors.register(handle_pool_timeout)
     dp.update.outer_middleware(PrivateChatOnlyMiddleware())
     dp.update.outer_middleware(UserTrackingMiddleware())
-    dp.update.outer_middleware(LanguageMiddleware())
+    # BlockedUserMiddleware MUST run before LanguageMiddleware: a blocked
+    # user with language still unset (every currently-blocked user, since
+    # there's no backfill) would otherwise be intercepted by the language
+    # chooser on every message forever, never reaching BlockedUserMiddleware
+    # and never seeing the "you are blocked" message. A deliberate,
+    # reviewed deviation from the original design spec's stated order
+    # (Language right after UserTracking) - the menu:language/lang:set:*
+    # bypass semantics inside LanguageMiddleware are unaffected by this
+    # reordering.
     dp.update.outer_middleware(BlockedUserMiddleware())
+    dp.update.outer_middleware(LanguageMiddleware())
     dp.update.outer_middleware(MandatoryChannelMiddleware())
 
     dp.include_router(admin.router)

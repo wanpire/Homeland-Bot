@@ -82,14 +82,31 @@ async def send_due_reminders(bot: Bot) -> None:
         if not candidates:
             return
 
+        # ibsng_username/telegram_id captured up front for every candidate,
+        # before the loop below ever gets a chance to roll back this shared
+        # batch session: session.rollback() unconditionally expires EVERY
+        # ORM instance still attached to the session, not just the one
+        # involved in the failure. Reading a vpn_user's attributes again
+        # after that - even for a later, unrelated candidate that was only
+        # ever loaded by the query above - forces an implicit lazy-load,
+        # which raises MissingGreenlet on an AsyncSession outside an
+        # explicit `await`. Capturing these here, while every instance is
+        # still fresh, means the loop body only ever needs to read the
+        # plain local values, never a (possibly-expired) vpn_user
+        # attribute. Plain attribute ASSIGNMENT (the
+        # `.expiry_reminder_sent_at = now` writes below) doesn't have this
+        # problem - only reads of an expired attribute do - so vpn_user
+        # itself is still used for those.
+        candidate_info = [(vpn_user, vpn_user.ibsng_username, vpn_user.telegram_id) for vpn_user in candidates]
+
         now = dt.datetime.now(dt.timezone.utc)
         async with IBSngClient() as client:
-            for vpn_user in candidates:
+            for vpn_user, ibsng_username, telegram_id in candidate_info:
                 try:
-                    status, expiry = await get_service_status(client, vpn_user.ibsng_username)
+                    status, expiry = await get_service_status(client, ibsng_username)
                 except Exception:
                     logger.exception(
-                        "Failed to look up IBSng status for ibsng_username=%s", vpn_user.ibsng_username
+                        "Failed to look up IBSng status for ibsng_username=%s", ibsng_username
                     )
                     continue
                 if status == "expired":
@@ -109,18 +126,25 @@ async def send_due_reminders(bot: Bot) -> None:
                     continue
 
                 try:
-                    lang = (await get_language(session, vpn_user.telegram_id)) or "en"
+                    lang = (await get_language(session, telegram_id)) or "en"
                 except Exception:
                     logger.exception(
                         "Failed to look up language for telegram_id=%s, defaulting to English",
-                        vpn_user.telegram_id,
+                        telegram_id,
                     )
+                    # A real DBAPI/SQLAlchemy error here leaves this
+                    # long-lived batch session needing a rollback before
+                    # any further statement (including the commit a few
+                    # lines below) can succeed - without this, the session
+                    # stays poisoned and PendingRollbackError aborts every
+                    # remaining candidate in the batch.
+                    await session.rollback()
                     lang = "en"
-                text = t("reminder_message", lang, username=vpn_user.ibsng_username, days=window.days)
+                text = t("reminder_message", lang, username=ibsng_username, days=window.days)
                 try:
-                    await bot.send_message(vpn_user.telegram_id, text, reply_markup=_renew_now_keyboard(lang))
+                    await bot.send_message(telegram_id, text, reply_markup=_renew_now_keyboard(lang))
                 except Exception:
-                    logger.exception("Failed to send expiry reminder to telegram_id=%s", vpn_user.telegram_id)
+                    logger.exception("Failed to send expiry reminder to telegram_id=%s", telegram_id)
                     continue
                 vpn_user.expiry_reminder_sent_at = now
                 await session.commit()

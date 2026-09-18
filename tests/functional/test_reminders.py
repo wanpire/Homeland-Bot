@@ -390,9 +390,29 @@ async def test_language_lookup_failure_defaults_to_english_and_continues_batch(
 ) -> None:
     """When get_language raises for one candidate, that candidate should
     still receive their reminder (in English as a safe default), and the
-    batch should continue processing any other candidates normally."""
+    batch should continue processing any other candidates normally.
+
+    The fake get_language below deliberately issues a real failing
+    statement THROUGH THE ACTUAL SESSION reminders.py's batch loop is
+    running on, rather than a bare exception that never touches the
+    session. That distinction matters: a bare RuntimeError (this test's
+    previous version) never leaves the session needing a rollback, so it
+    can't actually prove app/services/reminders.py's `await
+    session.rollback()` fix does anything - the test passed before that
+    fix existed too. A genuine DBAPI error against the real session does
+    leave it needing a rollback, so this version actually exercises the
+    fix: without it, the second candidate's later `await session.commit()`
+    would raise PendingRollbackError and abort the rest of the batch.
+    Asserting the SECOND candidate's expiry_reminder_sent_at is actually
+    persisted in the DB (not just that bot.send_message was called) proves
+    the session itself is still usable afterward, which is the real
+    property being fixed."""
     import datetime as dt
 
+    from sqlalchemy import text as sa_text
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.db.models.vpn_user import VPNUser
     from app.services import reminders
     from app.services.reminders import send_due_reminders
 
@@ -401,9 +421,13 @@ async def test_language_lookup_failure_defaults_to_english_and_continues_batch(
     expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
     _patch_status(monkeypatch, "active", expiry)
 
-    async def _fake_get_language(session: object, telegram_id: int) -> str | None:
+    async def _fake_get_language(session: AsyncSession, telegram_id: int) -> str | None:
         if telegram_id == 760:
-            raise RuntimeError("transient DB error")
+            # A genuine DBAPI-level failure using the SAME session the
+            # batch loop holds open - this is what actually poisons the
+            # transaction, unlike an exception that bypasses the session
+            # entirely.
+            await session.execute(sa_text("SELECT 1/0"))
         return None  # 761 has no language set, defaults to English
 
     monkeypatch.setattr(reminders, "get_language", _fake_get_language)
@@ -419,3 +443,10 @@ async def test_language_lookup_failure_defaults_to_english_and_continues_batch(
         any(b["text"] == "♻️ Renew Now" for row in s[1]["reply_markup"]["inline_keyboard"] for b in row)
         for s in sent
     )
+
+    # Proves the session survived the failure and is still usable for the
+    # rest of the batch, not just that send_message happened to fire
+    # before some later step silently failed.
+    async with async_session_maker() as session:
+        second = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 761))).scalar_one()
+    assert second.expiry_reminder_sent_at is not None

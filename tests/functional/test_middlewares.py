@@ -103,6 +103,40 @@ async def test_group_chat_message_is_not_even_recorded_as_a_bot_user(
 
 
 @pytest.mark.asyncio
+async def test_blocked_user_with_no_language_set_gets_blocked_message_not_chooser(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins the middleware registration order (BlockedUserMiddleware before
+    LanguageMiddleware). Every currently-blocked user has language IS NULL
+    (no backfill), so with the old order (Language before Blocked) they'd
+    be intercepted by the language chooser on every message forever -
+    BlockedUserMiddleware would never even run, and they'd never see the
+    "you are blocked" message, defeating the entire point of blocking
+    them.
+
+    Undoes the autouse test-default language fixture (which makes
+    LanguageMiddleware always resolve a language and never gate at all,
+    for every test in this suite) so the real gating behavior - the thing
+    this test exists to pin - is actually exercised. block_user is used
+    directly with language deliberately left unset."""
+    from app.services.bot_users import get_language as real_get_language
+    import app.bot.middlewares.language as language_mw
+
+    monkeypatch.setattr(language_mw, "get_language", real_get_language)
+
+    async with async_session_maker() as session:
+        await seed_bot_user(session, 5005)
+        await block_user(session, 5005)
+
+    await dispatcher.feed_update(bot, make_message_update(5005, "/start"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert len(sent) == 1
+    assert _BLOCKED_SNIPPET in sent[0][1]["text"]
+    assert "choose your language" not in sent[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_admin_ui_toggle_actually_gates_a_real_update_end_to_end(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:

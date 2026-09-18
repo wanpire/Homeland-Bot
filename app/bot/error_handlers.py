@@ -45,6 +45,7 @@ async def handle_pool_timeout(event: ErrorEvent) -> Any:
             async with async_session_maker() as session:
                 lang = (await get_language(session, chat_id)) or "en"
         except Exception:
+            logger.warning("Language lookup failed for chat_id=%s, defaulting to English", chat_id)
             lang = "en"
         try:
             await event.update.bot.send_message(chat_id, t("pool_busy", lang))

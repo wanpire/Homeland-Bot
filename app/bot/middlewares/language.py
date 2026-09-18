@@ -5,7 +5,7 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 
-from app.bot.keyboards.language import language_choice_keyboard
+from app.bot.keyboards.language import language_choice_keyboard, show_language_chooser
 from app.db.session import async_session_maker
 from app.i18n.texts import CHOOSE_LANGUAGE_TEXT
 from app.services.bot_users import get_language
@@ -42,8 +42,7 @@ class LanguageMiddleware(BaseMiddleware):
 
         if lang is None:
             if isinstance(inner, CallbackQuery):
-                if inner.message is not None:
-                    await inner.message.edit_text(CHOOSE_LANGUAGE_TEXT, reply_markup=language_choice_keyboard())
+                await show_language_chooser(inner)
                 await inner.answer()
             else:
                 await inner.answer(CHOOSE_LANGUAGE_TEXT, reply_markup=language_choice_keyboard())

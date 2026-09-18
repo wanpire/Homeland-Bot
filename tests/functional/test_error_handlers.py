@@ -105,12 +105,14 @@ async def test_production_dispatcher_registers_the_error_handler(dispatcher: Any
 
 @pytest.mark.asyncio
 async def test_pool_timeout_sends_persian_message_for_fa_user(bot: Any, fake_session: FakeBotSession) -> None:
-    """Empirical proof of whether aiogram's ErrorsMiddleware re-injects the
-    triggering update's `data` dict (with `lang` set by LanguageMiddleware
-    earlier in that same update's processing) into handle_pool_timeout's
-    kwargs. If it doesn't, `data.get("lang")` is missing/empty at runtime
-    and this user gets the English fallback text instead - failing this
-    assertion."""
+    """End-to-end check that a Persian-speaking user gets the localized
+    pool-busy message when a pool timeout occurs, through the real
+    LanguageMiddleware + error-handler stack. handle_pool_timeout looks up
+    the language itself via a direct DB query (get_language(session,
+    chat_id)) rather than reading data["lang"], so this does not exercise
+    or depend on whether aiogram's ErrorsMiddleware re-injects the
+    triggering update's `data` dict - it just proves the shipped
+    direct-query fallback renders the right localized text end-to-end."""
     telegram_id = 4104
     async with async_session_maker() as session:
         await record_seen(session, telegram_id, None)
