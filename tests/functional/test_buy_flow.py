@@ -344,3 +344,38 @@ async def test_buy_price_summary_shows_crypto_button(
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "₿ Pay with Crypto" in buttons
     assert "✅ Buy" not in buttons
+
+
+@pytest.mark.asyncio
+async def test_buy_category_screen_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.db.session import async_session_maker
+    from app.services.bot_users import record_seen, set_language
+
+    async with async_session_maker() as session:
+        await record_seen(session, 830, None)
+        await set_language(session, 830, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(830, "menu:buy"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "خرید اشتراک" in edited[0][1]["text"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "📜 اسکرول" in buttons
+
+
+@pytest.mark.asyncio
+async def test_buy_price_summary_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict) -> None:
+    from app.db.session import async_session_maker
+    from app.services.bot_users import record_seen, set_language
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+
+    async with async_session_maker() as session:
+        await record_seen(session, 831, None)
+        await set_language(session, 831, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(831, f"buy:plan:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "مدت:" in edited[0][1]["text"]
+    assert "قیمت:" in edited[0][1]["text"]
