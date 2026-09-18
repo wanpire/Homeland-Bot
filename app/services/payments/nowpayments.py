@@ -15,7 +15,7 @@ import hashlib
 import hmac
 import json
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import httpx
 
@@ -78,7 +78,10 @@ async def get_min_amount(*, currency_from: str, currency_to: str = "usd") -> Dec
     fiat_equivalent = data.get("fiat_equivalent")
     if fiat_equivalent is None:
         raise NowPaymentsError(f"NOWPayments min-amount response missing fiat_equivalent: {data!r}")
-    return Decimal(str(fiat_equivalent))
+    try:
+        return Decimal(str(fiat_equivalent))
+    except InvalidOperation as exc:
+        raise NowPaymentsError(f"NOWPayments min-amount response had a non-numeric fiat_equivalent: {data!r}") from exc
 
 
 async def check_minimum_amount(amount_usd: Decimal) -> None:

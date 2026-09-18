@@ -121,6 +121,31 @@ async def test_empty_address_is_rejected_without_calling_nowpayments(
 
 
 @pytest.mark.asyncio
+async def test_invalid_address_error_message_is_html_escaped(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NOWPayments echoes the submitted address back inside its error
+    message (confirmed against the real API) - if it ever contains HTML
+    special characters, this must not reach Telegram's HTML parser
+    unescaped (parse_mode is HTML app-wide)."""
+    from app.services.payments import nowpayments
+
+    async def _fake_validate(*, address: str, currency: str) -> tuple[bool, str | None]:
+        return False, "Invalid payout address: USDTTRC20 <script>&bogus"
+
+    monkeypatch.setattr(nowpayments, "validate_payout_address", _fake_validate)
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:usdttrc20"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "<script>&bogus"))
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    text = sent[-1][1]["text"]
+    assert "<script>" not in text
+    assert "&lt;script&gt;" in text
+    assert "&amp;bogus" in text
+
+
+@pytest.mark.asyncio
 async def test_nowpayments_api_failure_shows_clear_message_instead_of_crashing(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

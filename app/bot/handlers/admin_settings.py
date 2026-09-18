@@ -540,8 +540,12 @@ async def crypto_settlement_receive_address(message: Message, state: FSMContext)
         return
 
     if not is_valid:
+        # NOWPayments echoes the submitted address back inside its own
+        # error message (confirmed against the real API) - it must be
+        # escaped before going into this HTML-parse_mode reply, same as
+        # _crypto_settlement_status_text already does for the saved value.
         await message.answer(
-            _CRYPTO_INVALID_ADDRESS_TEXT.format(reason=error or "Invalid address.", network=label),
+            _CRYPTO_INVALID_ADDRESS_TEXT.format(reason=html.escape(error or "Invalid address."), network=label),
             reply_markup=crypto_settlement_edit_cancel_keyboard(),
         )
         return

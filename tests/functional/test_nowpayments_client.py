@@ -240,6 +240,35 @@ async def test_get_min_amount_raises_when_unconfigured(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
+async def test_get_min_amount_raises_nowpayments_error_on_non_numeric_fiat_equivalent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A malformed fiat_equivalent must surface as NowPaymentsError (which
+    check_minimum_amount's _min_or_none already knows to swallow and fail
+    open on) - not a raw decimal.InvalidOperation that would propagate
+    uncaught and turn a fail-open scenario into a crash."""
+    from app.services.payments import nowpayments
+
+    async def _fake_get(self: httpx.AsyncClient, url: str, *, params: dict[str, str], headers: dict[str, str]) -> _FakeResponse:
+        return _FakeResponse(200, {"currency_from": "ltc", "currency_to": "usd", "min_amount": 0.21, "fiat_equivalent": "N/A"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    with pytest.raises(nowpayments.NowPaymentsError):
+        await nowpayments.get_min_amount(currency_from="ltc")
+
+
+@pytest.mark.asyncio
+async def test_check_minimum_amount_fails_open_on_non_numeric_fiat_equivalent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import nowpayments
+
+    async def _fake_get(self: httpx.AsyncClient, url: str, *, params: dict[str, str], headers: dict[str, str]) -> _FakeResponse:
+        return _FakeResponse(200, {"currency_from": params["currency_from"], "currency_to": "usd", "min_amount": 1, "fiat_equivalent": "N/A"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    await nowpayments.check_minimum_amount(Decimal("3.00"))  # no raise - every lookup failed to parse, so fail open
+
+
+@pytest.mark.asyncio
 async def test_get_min_amount_raises_on_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services.payments import nowpayments
 
