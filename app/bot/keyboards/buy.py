@@ -12,8 +12,9 @@ def buy_category_keyboard(lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=category_display_name("scroll", lang), callback_data="buy:category:scroll")
     builder.button(text=category_display_name("stream", lang), callback_data="buy:category:stream")
+    builder.button(text=category_display_name("trip", lang), callback_data="buy:category:trip")
     builder.button(text=t("back_to_menu", lang), callback_data="menu:root")
-    builder.adjust(2, 1)
+    builder.adjust(2, 1, 1)
     return builder.as_markup()
 
 
@@ -21,7 +22,7 @@ def buy_plan_keyboard(plans: list[Plan], lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for plan in plans:
         builder.button(
-            text=f"{plan_display_name(plan, lang)} — {format_price_usd(plan.price_usd)} ({format_data_cap(plan.data_cap_mb)})",
+            text=f"{plan_display_name(plan, lang)} — {format_price_usd(plan.price_usd)} ({format_data_cap(plan.data_cap_mb, lang)})",
             callback_data=f"buy:plan:{plan.id}",
         )
     builder.button(text=t("back_button", lang), callback_data="menu:buy")

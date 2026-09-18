@@ -61,7 +61,7 @@ async def _price_summary_text(session: AsyncSession, plan: Plan, lang: str) -> s
     lines = [
         f"🔑 <b>{plan_display_name(plan, lang)} ({category_display_name(plan.category, lang)})</b>",
         t("price_duration", lang, days=plan.duration_days),
-        t("price_data", lang, cap=format_data_cap(plan.data_cap_mb)),
+        t("price_data", lang, cap=format_data_cap(plan.data_cap_mb, lang)),
     ]
     discount = await find_best_auto_discount(session, plan.id)
     if discount is not None:

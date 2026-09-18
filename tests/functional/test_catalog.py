@@ -129,9 +129,37 @@ def test_format_price_usd() -> None:
 def test_format_data_cap() -> None:
     from app.services.catalog import format_data_cap
 
-    assert format_data_cap(5120) == "5 GB"
-    assert format_data_cap(10240) == "10 GB"
-    assert format_data_cap(1536) == "1536 MB"
+    assert format_data_cap(5120, "en") == "5 GB"
+    assert format_data_cap(10240, "en") == "10 GB"
+    assert format_data_cap(1536, "en") == "1536 MB"
+
+
+def test_format_data_cap_unlimited_sentinel() -> None:
+    from app.services.catalog import format_data_cap
+
+    assert format_data_cap(0, "en") == "Unlimited"
+    assert format_data_cap(0, "fa") == "نامحدود"
+
+
+def test_format_data_cap_gb_and_mb_still_work_with_lang() -> None:
+    from app.services.catalog import format_data_cap
+
+    assert format_data_cap(10240, "en") == "10 GB"
+    assert format_data_cap(500, "en") == "500 MB"
+    assert format_data_cap(10240, "fa") == "10 GB"
+
+
+def test_categories_includes_trip() -> None:
+    from app.services.catalog import CATEGORIES
+
+    assert "trip" in CATEGORIES
+
+
+def test_category_display_name_trip() -> None:
+    from app.services.catalog import category_display_name
+
+    assert category_display_name("trip", "en") == "🧳 Trip"
+    assert category_display_name("trip", "fa") == "🧳 سفر کوتاه"
 
 
 @pytest.mark.asyncio

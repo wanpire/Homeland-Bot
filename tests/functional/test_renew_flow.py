@@ -573,6 +573,28 @@ async def test_renew_category_picker_shows_current_plan_name_in_persian(
 
 
 @pytest.mark.asyncio
+async def test_renew_trip_category_button_present(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    telegram_id = 860
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:service:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    keyboard = edited[-1][1]["reply_markup"]["inline_keyboard"]
+    trip_buttons = [b for row in keyboard for b in row if b["callback_data"] == f"renew:category:{service.id}:trip"]
+    assert len(trip_buttons) == 1
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:category:{service.id}:trip"))
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    keyboard = edited[-1][1]["reply_markup"]["inline_keyboard"]
+    plan_buttons = [b for row in keyboard for b in row if b["callback_data"].startswith(f"renew:plan:{service.id}:")]
+    assert len(plan_buttons) == 1
+    assert "2 Weeks" in plan_buttons[0]["text"]
+
+
+@pytest.mark.asyncio
 async def test_renew_summary_shows_current_plan_name_in_persian(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:

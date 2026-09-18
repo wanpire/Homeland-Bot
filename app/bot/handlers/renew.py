@@ -162,7 +162,7 @@ async def _renew_summary_text(session: AsyncSession, current_name: str, plan: Pl
     lines = [
         t("renew_summary_heading", lang, current=current_name, new=plan_display_name(plan, lang), category=category_display_name(plan.category, lang)),
         t("price_duration", lang, days=plan.duration_days),
-        t("price_data", lang, cap=format_data_cap(plan.data_cap_mb)),
+        t("price_data", lang, cap=format_data_cap(plan.data_cap_mb, lang)),
     ]
     discount = await find_best_auto_discount(session, plan.id)
     if discount is not None:

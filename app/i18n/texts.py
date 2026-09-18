@@ -30,6 +30,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "category_scroll": "📜 Scroll",
         "category_stream": "🌊 Stream",
         "category_trial": "Trial",
+        "category_trip": "🧳 Trip",
         "plan_gone": "⚠️ That plan no longer exists. Please pick another.",
         "payment_coming_soon": (
             "🚧 Payment methods (Stripe, crypto) are coming soon — we'll let you know "
@@ -152,6 +153,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "plan_name_1month": "1 Month",
         "plan_name_2months": "2 Months",
         "plan_name_3months": "3 Months",
+
+        # --- data cap display (catalog.py) ---
+        "data_cap_unlimited": "Unlimited",
     },
     "fa": {
         "welcome": "👋 به Homeland VPN خوش آمدید.\n\nیکی از گزینه‌های زیر را انتخاب کنید:",
@@ -174,6 +178,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "category_scroll": "📜 اسکرول",
         "category_stream": "🌊 استریم",
         "category_trial": "تست رایگان",
+        "category_trip": "🧳 سفر کوتاه",
         "plan_gone": "⚠️ این پلن دیگر وجود ندارد. لطفاً پلن دیگری انتخاب کنید.",
         "payment_coming_soon": (
             "🚧 روش‌های پرداخت (استرایپ، ارز دیجیتال) به‌زودی فعال می‌شوند — به محض "
@@ -287,6 +292,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "plan_name_1month": "۱ ماه",
         "plan_name_2months": "۲ ماه",
         "plan_name_3months": "۳ ماه",
+        "data_cap_unlimited": "نامحدود",
     },
 }
 

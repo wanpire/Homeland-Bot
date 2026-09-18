@@ -31,8 +31,9 @@ def renew_category_keyboard(vpn_user_id: int, lang: str) -> InlineKeyboardMarkup
     builder = InlineKeyboardBuilder()
     builder.button(text=category_display_name("scroll", lang), callback_data=f"renew:category:{vpn_user_id}:scroll")
     builder.button(text=category_display_name("stream", lang), callback_data=f"renew:category:{vpn_user_id}:stream")
+    builder.button(text=category_display_name("trip", lang), callback_data=f"renew:category:{vpn_user_id}:trip")
     builder.button(text=t("back_to_list_button", lang), callback_data="menu:renew")
-    builder.adjust(2, 1)
+    builder.adjust(2, 1, 1)
     return builder.as_markup()
 
 
@@ -40,7 +41,7 @@ def renew_plan_keyboard(plans: list[Plan], vpn_user_id: int, category: str, lang
     builder = InlineKeyboardBuilder()
     for plan in plans:
         builder.button(
-            text=f"{plan_display_name(plan, lang)} — {format_price_usd(plan.price_usd)} ({format_data_cap(plan.data_cap_mb)})",
+            text=f"{plan_display_name(plan, lang)} — {format_price_usd(plan.price_usd)} ({format_data_cap(plan.data_cap_mb, lang)})",
             callback_data=f"renew:plan:{vpn_user_id}:{plan.id}",
         )
     builder.button(text=t("back_button", lang), callback_data=f"renew:service:{vpn_user_id}")

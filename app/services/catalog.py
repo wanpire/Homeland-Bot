@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.plan import Plan
 from app.i18n.texts import t
 
-CATEGORIES = ("scroll", "stream", "trial")
+CATEGORIES = ("scroll", "stream", "trip", "trial")
 
 
 async def list_plans(
@@ -52,7 +52,9 @@ def format_price_usd(price: Decimal) -> str:
     return f"${price:.2f}"
 
 
-def format_data_cap(data_cap_mb: int) -> str:
+def format_data_cap(data_cap_mb: int, lang: str) -> str:
+    if data_cap_mb == 0:
+        return t("data_cap_unlimited", lang)
     if data_cap_mb % 1024 == 0:
         return f"{data_cap_mb // 1024} GB"
     return f"{data_cap_mb} MB"
@@ -66,7 +68,12 @@ _PLAN_NAME_KEYS = {
     "3 Months": "plan_name_3months",
 }
 
-_CATEGORY_KEYS = {"scroll": "category_scroll", "stream": "category_stream", "trial": "category_trial"}
+_CATEGORY_KEYS = {
+    "scroll": "category_scroll",
+    "stream": "category_stream",
+    "trip": "category_trip",
+    "trial": "category_trial",
+}
 
 
 def plan_display_name(plan: Plan, lang: str) -> str:

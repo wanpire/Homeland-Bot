@@ -359,6 +359,22 @@ async def test_buy_category_screen_in_persian(dispatcher: Any, bot: Any, fake_se
 
 
 @pytest.mark.asyncio
+async def test_trip_category_button_present_and_routes(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(999, "menu:buy"))
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    keyboard = edited[-1][1]["reply_markup"]["inline_keyboard"]
+    trip_buttons = [b for row in keyboard for b in row if b["callback_data"] == "buy:category:trip"]
+    assert len(trip_buttons) == 1
+
+    await dispatcher.feed_update(bot, make_callback_update(999, "buy:category:trip"))
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    keyboard = edited[-1][1]["reply_markup"]["inline_keyboard"]
+    plan_buttons = [b for row in keyboard for b in row if b["callback_data"].startswith("buy:plan:")]
+    assert len(plan_buttons) == 1
+    assert "2 Weeks" in plan_buttons[0]["text"]
+
+
+@pytest.mark.asyncio
 async def test_buy_price_summary_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict) -> None:
     from app.db.session import async_session_maker
     from app.services.bot_users import record_seen, set_language
