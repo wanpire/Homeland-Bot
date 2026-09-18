@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.bot_user import BotUser
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
+from app.i18n.texts import t
 from app.services.app_config import get_config
+from app.services.bot_users import get_language
 from app.services.ibsng.client import IBSngClient
 from app.services.vpn_users import get_service_status
 
@@ -22,15 +24,10 @@ logger = logging.getLogger(__name__)
 _CHECK_INTERVAL_SECONDS = 30 * 60
 DEFAULT_DAYS_BEFORE = 2  # public: app/bot/handlers/admin_settings.py's status screen shares this default
 
-_MESSAGE_TEMPLATE = (
-    "⏰ Your VPN service (<code>{username}</code>) expires in less than "
-    "{days} day(s). Renew now to avoid interruption."
-)
 
-
-def _renew_now_keyboard() -> InlineKeyboardMarkup:
+def _renew_now_keyboard(lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="♻️ Renew Now", callback_data="menu:renew")
+    builder.button(text=t("renew_now_button", lang), callback_data="menu:renew")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -111,9 +108,10 @@ async def send_due_reminders(bot: Bot) -> None:
                 if not (dt.timedelta(0) < (expiry - now) <= window):
                     continue
 
-                text = _MESSAGE_TEMPLATE.format(username=vpn_user.ibsng_username, days=window.days)
+                lang = (await get_language(session, vpn_user.telegram_id)) or "en"
+                text = t("reminder_message", lang, username=vpn_user.ibsng_username, days=window.days)
                 try:
-                    await bot.send_message(vpn_user.telegram_id, text, reply_markup=_renew_now_keyboard())
+                    await bot.send_message(vpn_user.telegram_id, text, reply_markup=_renew_now_keyboard(lang))
                 except Exception:
                     logger.exception("Failed to send expiry reminder to telegram_id=%s", vpn_user.telegram_id)
                     continue

@@ -355,3 +355,30 @@ async def test_run_reminder_loop_survives_an_iteration_exception(monkeypatch: py
         await reminders.run_reminder_loop(object())  # type: ignore[arg-type]
 
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_sends_persian_reminder_to_persian_user(
+    bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import datetime as dt
+
+    from app.services.bot_users import record_seen, set_language
+    from app.services.reminders import send_due_reminders
+
+    telegram_id = 750
+    await _seed_vpn_user(telegram_id)
+    expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    _patch_status(monkeypatch, "active", expiry)
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await send_due_reminders(bot)
+
+    sent = _sent(fake_session)
+    assert len(sent) == 1
+    assert "اعتبار سرویس شما" in sent[0][1]["text"]
+    buttons = [b for row in sent[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any(b["text"] == "♻️ تمدید کنید" for b in buttons)
