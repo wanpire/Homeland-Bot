@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
+from app.services.app_config import get_config
 from app.services.catalog import get_plan
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
@@ -107,6 +108,14 @@ async def create_vpn_user(
 
 
 async def has_used_trial(session: AsyncSession, telegram_id: int) -> bool:
+    """The one-trial-per-telegram_id rule, admin-toggleable via the
+    trial_limit_enabled app_config flag (unset/"true" keeps the rule
+    enforced; "false" makes everyone always eligible). No DB constraint
+    backs this any more - see migration 0008, which drops the old
+    ix_vpn_users_trial_once unique index for exactly this reason,
+    mirroring AloBot's own trial_limit_enabled precedent."""
+    if (await get_config(session, "trial_limit_enabled")) == "false":
+        return False
     result = await session.execute(
         select(VPNUser.id).where(VPNUser.telegram_id == telegram_id, VPNUser.is_trial.is_(True)).limit(1)
     )

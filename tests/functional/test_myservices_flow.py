@@ -38,32 +38,13 @@ async def test_myservices_shows_empty_state_when_no_services(dispatcher: Any, bo
 
 
 @pytest.mark.asyncio
-async def test_myservices_empty_state_hides_trial_button_when_disabled(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession
-) -> None:
-    from app.services.trial_config import set_trial_enabled
-
-    async with async_session_maker() as session:
-        await set_trial_enabled(session, False)
-
-    await dispatcher.feed_update(bot, make_callback_update(702, "menu:myservices"))
-
-    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert len(edited) == 1
-    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    assert "🔑 Buy Subscription" in buttons
-    assert "🎁 Free Trial" not in buttons
-    assert any("back" in b.lower() for b in buttons)
-
-
-@pytest.mark.asyncio
-async def test_existing_trial_users_service_still_lists_when_trial_disabled(
+async def test_existing_trial_users_service_still_lists_when_trial_limit_disabled(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
 ) -> None:
-    """trial_enabled=False must only gate NEW trial signups - a customer
-    who already has a trial VPNUser row keeps full access to their
-    existing service (list, view, resend setup) exactly as before."""
-    from app.services.trial_config import set_trial_enabled
+    """Turning off trial_limit_enabled must only affect eligibility for a
+    NEW trial - a customer who already has a trial VPNUser row keeps full
+    access to their existing service (list, view) exactly as before."""
+    from app.services.app_config import set_config
 
     telegram_id = 704
     service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trial", name="Trial", is_trial=True)
@@ -71,7 +52,7 @@ async def test_existing_trial_users_service_still_lists_when_trial_disabled(
     ibsng_server.set_user_attr(service.ibsng_username, "nearest_exp_date", future)
 
     async with async_session_maker() as session:
-        await set_trial_enabled(session, False)
+        await set_config(session, "trial_limit_enabled", "false")
 
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
 

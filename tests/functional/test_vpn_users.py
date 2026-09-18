@@ -135,6 +135,32 @@ async def test_has_used_trial() -> None:
 
 
 @pytest.mark.asyncio
+async def test_has_used_trial_ignores_prior_trial_when_limit_disabled() -> None:
+    from app.db.models.vpn_user import VPNUser
+    from app.services.app_config import set_config
+    from app.services.vpn_users import has_used_trial
+
+    async with async_session_maker() as session:
+        session.add(VPNUser(telegram_id=607, ibsng_username="hl.limitoff", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
+        await session.commit()
+
+    async with async_session_maker() as session:
+        assert await has_used_trial(session, 607) is True
+
+    async with async_session_maker() as session:
+        await set_config(session, "trial_limit_enabled", "false")
+
+    async with async_session_maker() as session:
+        assert await has_used_trial(session, 607) is False
+
+    async with async_session_maker() as session:
+        await set_config(session, "trial_limit_enabled", "true")
+
+    async with async_session_maker() as session:
+        assert await has_used_trial(session, 607) is True
+
+
+@pytest.mark.asyncio
 async def test_renew_and_change_group_updates_tracked_vpn_user(seeded_catalog: dict) -> None:
     from sqlalchemy import select
 

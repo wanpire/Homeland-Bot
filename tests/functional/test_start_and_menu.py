@@ -30,29 +30,6 @@ async def test_start_shows_english_main_menu(dispatcher: Any, bot: Any, fake_ses
 
 
 @pytest.mark.asyncio
-async def test_start_hides_trial_button_when_disabled(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    from app.db.session import async_session_maker
-    from app.services.trial_config import set_trial_enabled
-
-    async with async_session_maker() as session:
-        await set_trial_enabled(session, False)
-
-    update = make_message_update(999, "/start")
-    await dispatcher.feed_update(bot, update)
-
-    _, data = [call for call in fake_session.calls if call[0] == "sendMessage"][0]
-    buttons = [btn["text"] for row in data["reply_markup"]["inline_keyboard"] for btn in row]
-    assert "🎁 Free Trial" not in buttons
-    assert buttons == [
-        "🔑 Buy Subscription",
-        "♻️ Renew Service",
-        "🛍 My Services",
-        "📚 Tutorials",
-        "☎️ Support",
-    ]
-
-
-@pytest.mark.asyncio
 async def test_start_shows_admin_button_for_admin(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     update = make_message_update(FAKE_ADMIN_ID, "/start")
     await dispatcher.feed_update(bot, update)

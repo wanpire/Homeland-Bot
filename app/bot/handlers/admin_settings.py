@@ -24,7 +24,6 @@ from app.services.mandatory_channel import (
     set_mandatory_channel_enabled,
     set_mandatory_channels,
 )
-from app.services.trial_config import is_trial_enabled, set_trial_enabled
 
 router = Router(name="admin_settings")
 router.message.filter(IsFullAdmin())
@@ -245,13 +244,19 @@ async def settings_toggle_reminders_cb(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-async def _trial_status_text(session: AsyncSession) -> str:
-    enabled = await is_trial_enabled(session)
+async def _trial_limit_status_text(session: AsyncSession) -> str:
+    enabled = (await get_config(session, "trial_limit_enabled")) != "false"
     state_line = "🟢 Enabled" if enabled else "🔴 Disabled"
-    return f"🎁 <b>Free Trial</b>\n\nState: {state_line}"
+    return (
+        "🎁 <b>Trial Limit</b>\n\n"
+        "When enabled, each customer can claim only one free trial, ever. "
+        "Turning it off lets everyone (including customers who already "
+        "claimed one) start another trial.\n\n"
+        f"State: {state_line}"
+    )
 
 
-def _trial_settings_keyboard(*, enabled: bool) -> InlineKeyboardMarkup:
+def _trial_limit_settings_keyboard(*, enabled: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🔴 Turn Off" if enabled else "🟢 Turn On", callback_data="adm:settings:trial:toggle")
     builder.button(text="⬅️ Back to Settings", callback_data="adm:settings")
@@ -260,23 +265,23 @@ def _trial_settings_keyboard(*, enabled: bool) -> InlineKeyboardMarkup:
 
 
 @router.callback_query(F.data == "adm:settings:trial")
-async def settings_trial_status_cb(callback: CallbackQuery, state: FSMContext) -> None:
+async def settings_trial_limit_status_cb(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     async with async_session_maker() as session:
-        enabled = await is_trial_enabled(session)
-        text = await _trial_status_text(session)
+        enabled = (await get_config(session, "trial_limit_enabled")) != "false"
+        text = await _trial_limit_status_text(session)
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=_trial_settings_keyboard(enabled=enabled))
+        await callback.message.edit_text(text, reply_markup=_trial_limit_settings_keyboard(enabled=enabled))
     await callback.answer()
 
 
 @router.callback_query(F.data == "adm:settings:trial:toggle")
-async def settings_toggle_trial_cb(callback: CallbackQuery) -> None:
+async def settings_toggle_trial_limit_cb(callback: CallbackQuery) -> None:
     async with async_session_maker() as session:
-        currently_enabled = await is_trial_enabled(session)
-        await set_trial_enabled(session, not currently_enabled)
+        currently_enabled = (await get_config(session, "trial_limit_enabled")) != "false"
+        await set_config(session, "trial_limit_enabled", "false" if currently_enabled else "true")
         enabled = not currently_enabled
-        text = await _trial_status_text(session)
+        text = await _trial_limit_status_text(session)
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=_trial_settings_keyboard(enabled=enabled))
+        await callback.message.edit_text(text, reply_markup=_trial_limit_settings_keyboard(enabled=enabled))
     await callback.answer()

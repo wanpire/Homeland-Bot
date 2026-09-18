@@ -246,52 +246,54 @@ async def test_trial_credentials_ibsng_failure_tells_user_to_contact_support(
 
 
 @pytest.mark.asyncio
-async def test_trial_entry_shows_unavailable_message_when_disabled(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession
-) -> None:
-    from app.services.trial_config import set_trial_enabled
-
-    async with async_session_maker() as session:
-        await set_trial_enabled(session, False)
-
-    await dispatcher.feed_update(bot, make_callback_update(812, "menu:trial"))
-
-    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert len(edited) == 1
-    assert "unavailable" in edited[0][1]["text"].lower()
-
-
-@pytest.mark.asyncio
-async def test_trial_confirm_blocked_when_disabled_even_via_old_button(
+async def test_trial_confirm_allows_second_trial_when_limit_disabled(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, ibsng_server: FakeIBSngServer
 ) -> None:
-    """trial:confirm is a bare callback_data string, so an old message's
-    button (rendered before an admin disabled trials) can still reach this
-    handler without ever passing through trial_entry_cb - the same
-    defense-in-depth reasoning this file already applies to has_used_trial.
-    Must not provision an IBSng account."""
-    from app.services.trial_config import set_trial_enabled
+    """An admin turning trial_limit_enabled off must let a customer who
+    already claimed a trial claim a genuine second one - a real second
+    IBSng account and a real second VPNUser row, not an error."""
+    from app.db.models.vpn_user import VPNUser
+    from app.services.app_config import set_config
+
+    telegram_id = 815
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "trial:confirm"))
+    assert ibsng_server.user_count() == 1
 
     async with async_session_maker() as session:
-        await set_trial_enabled(session, False)
+        await set_config(session, "trial_limit_enabled", "false")
 
-    await dispatcher.feed_update(bot, make_callback_update(813, "trial:confirm"))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "trial:confirm"))
 
-    assert ibsng_server.user_count() == 0
+    assert ibsng_server.user_count() == 2
+    async with async_session_maker() as session:
+        rows = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == telegram_id))).scalars().all()
+    assert len(rows) == 2
+    assert all(row.is_trial for row in rows)
+
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
-    assert "unavailable" in edited[0][1]["text"].lower()
+    assert "already used" not in edited[0][1]["text"].lower()
 
 
 @pytest.mark.asyncio
-async def test_trial_entry_works_normally_when_enabled(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    from app.services.trial_config import set_trial_enabled
+async def test_trial_confirm_still_blocked_when_limit_explicitly_enabled(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, ibsng_server: FakeIBSngServer
+) -> None:
+    """Setting trial_limit_enabled explicitly to "true" (not just leaving
+    it unset) must behave identically to the default - one trial per
+    customer."""
+    from app.services.app_config import set_config
 
+    telegram_id = 816
     async with async_session_maker() as session:
-        await set_trial_enabled(session, True)
+        await set_config(session, "trial_limit_enabled", "true")
 
-    await dispatcher.feed_update(bot, make_callback_update(814, "menu:trial"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "trial:confirm"))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "trial:confirm"))
 
+    assert ibsng_server.user_count() == 1
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
-    assert "unavailable" not in edited[0][1]["text"].lower()
+    assert "already used" in edited[0][1]["text"].lower()

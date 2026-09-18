@@ -16,16 +16,12 @@ _STATUS_BADGE = {
 }
 
 
-def myservices_empty_keyboard(*, trial_enabled: bool) -> InlineKeyboardMarkup:
+def myservices_empty_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🔑 Buy Subscription", callback_data="menu:buy", style="success")
-    sizes = [1]
-    if trial_enabled:
-        builder.button(text="🎁 Free Trial", callback_data="menu:trial", style="primary")
-        sizes = [2]
+    builder.button(text="🎁 Free Trial", callback_data="menu:trial", style="primary")
     builder.button(text="⬅️ Back to Menu", callback_data="menu:root")
-    sizes.append(1)
-    builder.adjust(*sizes)
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 

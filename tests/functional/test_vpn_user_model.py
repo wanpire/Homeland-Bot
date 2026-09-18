@@ -82,7 +82,14 @@ async def test_is_trial_defaults_false() -> None:
 
 
 @pytest.mark.asyncio
-async def test_only_one_trial_vpn_user_per_telegram_id() -> None:
+async def test_db_no_longer_restricts_trial_vpn_users_per_telegram_id() -> None:
+    """The lifetime-once rule is enforced entirely at the app layer now
+    (has_used_trial, admin-toggleable via trial_limit_enabled) - migration
+    0008 drops the old DB-level unique index specifically so a second
+    is_trial=true row for the same telegram_id can succeed when the admin
+    has turned the limit off. This is the inverse of the old
+    test_only_one_trial_vpn_user_per_telegram_id, which asserted the
+    now-removed constraint."""
     from app.db.models.vpn_user import VPNUser
 
     async with async_session_maker() as session:
@@ -91,8 +98,12 @@ async def test_only_one_trial_vpn_user_per_telegram_id() -> None:
 
     async with async_session_maker() as session:
         session.add(VPNUser(telegram_id=502, ibsng_username="trial_once_b", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
-        with pytest.raises(IntegrityError):
-            await session.commit()
+        await session.commit()
+
+    async with async_session_maker() as session:
+        rows = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 502))).scalars().all()
+    assert len(rows) == 2
+    assert all(row.is_trial for row in rows)
 
 
 @pytest.mark.asyncio

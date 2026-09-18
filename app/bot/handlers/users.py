@@ -9,7 +9,6 @@ from app.config import get_settings
 from app.db.session import async_session_maker
 from app.services.admin_users import has_level
 from app.services.app_config import get_config
-from app.services.trial_config import is_trial_enabled
 
 router = Router(name="users")
 
@@ -23,14 +22,14 @@ _PLACEHOLDER_CALLBACKS = {
 }
 
 
-async def _menu_flags(telegram_id: int) -> tuple[bool, bool]:
+async def _is_admin(telegram_id: int) -> bool:
     async with async_session_maker() as session:
-        return await has_level(session, telegram_id, "support"), await is_trial_enabled(session)
+        return await has_level(session, telegram_id, "support")
 
 
 async def send_main_menu(target: Message) -> None:
-    is_admin, trial_enabled = await _menu_flags(target.from_user.id) if target.from_user else (False, True)
-    await target.answer(WELCOME_TEXT, reply_markup=main_menu(is_admin=is_admin, trial_enabled=trial_enabled))
+    is_admin = await _is_admin(target.from_user.id) if target.from_user else False
+    await target.answer(WELCOME_TEXT, reply_markup=main_menu(is_admin=is_admin))
 
 
 @router.message(Command("start"))
@@ -41,8 +40,8 @@ async def start_cmd(message: Message) -> None:
 @router.callback_query(F.data == "menu:root")
 async def menu_root_cb(callback: CallbackQuery) -> None:
     if callback.message is not None:
-        is_admin, trial_enabled = await _menu_flags(callback.from_user.id)
-        await callback.message.edit_text(WELCOME_TEXT, reply_markup=main_menu(is_admin=is_admin, trial_enabled=trial_enabled))
+        is_admin = await _is_admin(callback.from_user.id)
+        await callback.message.edit_text(WELCOME_TEXT, reply_markup=main_menu(is_admin=is_admin))
     await callback.answer()
 
 
