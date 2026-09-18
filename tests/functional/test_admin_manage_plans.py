@@ -92,6 +92,56 @@ async def test_price_edit_rejects_price_at_or_above_1000(dispatcher: Any, bot: A
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("raw_value", ["nan", "NaN", "-nan", "inf"])
+async def test_price_edit_rejects_non_finite_input(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, raw_value: str
+) -> None:
+    """Decimal("nan") parses and quantizes without raising InvalidOperation,
+    so it must be rejected explicitly - otherwise the later bounds
+    comparison (new_price <= 0) raises uncaught on a NaN operand, the
+    admin gets no response, and the FSM is stuck in EditPlanPriceStates.price."""
+    from app.services.catalog import get_plan
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:plan:8:price"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, raw_value))
+
+    async with async_session_maker() as session:
+        plan = await get_plan(session, 8)
+        assert plan is not None
+        assert plan.price_usd == Decimal("9.00")  # unchanged
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    assert any("valid" in c[1].get("text", "").lower() or "number" in c[1].get("text", "").lower() for c in sent)
+
+
+@pytest.mark.asyncio
+async def test_price_edit_logs_audit_trail(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The audit line must actually render admin/plan/old_price/new_price
+    under this app's real logging.basicConfig(), which never renders
+    extra= fields - so assert on the rendered message string, not just
+    that logger.info was called."""
+    import logging
+
+    caplog.set_level(logging.INFO, logger="app.bot.handlers.admin_settings")
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:plan:8:price"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "12.50"))
+
+    audit_records = [r for r in caplog.records if r.name == "app.bot.handlers.admin_settings"]
+    rendered = [r.getMessage() for r in audit_records]
+    assert any(
+        "admin_price_change" in msg
+        and f"admin={FAKE_ADMIN_ID}" in msg
+        and "plan=8" in msg
+        and "old_price=9.00" in msg
+        and "new_price=12.50" in msg
+        for msg in rendered
+    ), rendered
+
+
+@pytest.mark.asyncio
 async def test_toggle_active_hides_plan_from_buy_flow(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:plan:8:toggle"))
 

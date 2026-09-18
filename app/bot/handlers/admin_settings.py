@@ -377,7 +377,7 @@ async def manage_plan_receive_price(message: Message, state: FSMContext) -> None
     except InvalidOperation:
         await message.answer(_INVALID_PRICE_TEXT, reply_markup=manage_plans_price_edit_cancel_keyboard(plan_id))
         return
-    if new_price <= 0 or new_price >= _MAX_PLAN_PRICE:
+    if not new_price.is_finite() or new_price <= 0 or new_price >= _MAX_PLAN_PRICE:
         await message.answer(_INVALID_PRICE_TEXT, reply_markup=manage_plans_price_edit_cancel_keyboard(plan_id))
         return
 
@@ -391,14 +391,12 @@ async def manage_plan_receive_price(message: Message, state: FSMContext) -> None
         updated = await update_plan(session, plan_id, price_usd=new_price)
 
     logger.info(
-        "admin_price_change",
-        extra={
-            "admin_telegram_id": message.from_user.id if message.from_user is not None else None,
-            "plan_id": plan_id,
-            "old_price": str(old_price),
-            "new_price": str(new_price),
-            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
-        },
+        "admin_price_change admin=%s plan=%s old_price=%s new_price=%s timestamp=%s",
+        message.from_user.id if message.from_user is not None else None,
+        plan_id,
+        old_price,
+        new_price,
+        dt.datetime.now(dt.timezone.utc).isoformat(),
     )
 
     await state.clear()
