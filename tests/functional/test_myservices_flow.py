@@ -437,3 +437,42 @@ async def test_myservices_resend_malformed_platform_ids_degrade_gracefully(
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "not found" in edited[0][1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_myservices_empty_state_in_persian(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    from app.services.bot_users import record_seen, set_language
+
+    async with async_session_maker() as session:
+        await record_seen(session, 710, None)
+        await set_language(session, 710, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(710, "menu:myservices"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "سرویسی ندارید" in edited[0][1]["text"]
+    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "🎁 تست رایگان" in buttons
+
+
+@pytest.mark.asyncio
+async def test_myservices_detail_status_in_persian(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
+) -> None:
+    import datetime as dt
+
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 711
+    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
+    future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M")
+    ibsng_server.set_user_attr(service.ibsng_username, "nearest_exp_date", future)
+
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, "fa")
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert "وضعیت: ✅ فعال" in edited[0][1]["text"]

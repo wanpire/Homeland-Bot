@@ -15,6 +15,7 @@ from app.bot.keyboards.trial import back_to_menu_keyboard
 from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
+from app.i18n.texts import t
 from app.services.catalog import get_plan
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
@@ -24,45 +25,37 @@ from app.services.vpn_users import get_owned_vpn_user, get_service_status, list_
 
 router = Router(name="myservices")
 
-_LIST_TEXT = "🛍 <b>My Services</b>"
-_EMPTY_TEXT = "🛍 <b>My Services</b>\n\nYou don't have any services yet."
-_NOT_FOUND_TEXT = "⚠️ Service not found."
-_PROTOCOL_PROMPT_TEXT = "🔌 Which protocol do you want to use?"
-_PLATFORM_PROMPT_TEXT = "📱 Which device do you want to set it up on?"
-_RESENT_TEXT = "✅ Sent — check the message above."
-_RESEND_BLOCKED_TEXT = "⚠️ See the message above for details."
-
 
 @router.callback_query(F.data == "menu:myservices")
-async def myservices_list_cb(callback: CallbackQuery) -> None:
+async def myservices_list_cb(callback: CallbackQuery, lang: str) -> None:
     telegram_id = callback.from_user.id
     async with async_session_maker() as session, IBSngClient() as client:
         rows = await list_services_with_status(session, client, telegram_id)
 
     if not rows:
         if callback.message is not None:
-            await callback.message.edit_text(_EMPTY_TEXT, reply_markup=myservices_empty_keyboard())
+            await callback.message.edit_text(t("myservices_empty", lang), reply_markup=myservices_empty_keyboard(lang))
         await callback.answer()
         return
 
     if callback.message is not None:
-        await callback.message.edit_text(_LIST_TEXT, reply_markup=myservices_list_keyboard(rows))
+        await callback.message.edit_text(t("myservices_heading", lang), reply_markup=myservices_list_keyboard(rows, lang))
     await callback.answer()
 
 
-async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPNUser) -> str:
+async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPNUser, lang: str) -> str:
     plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
     name = plan.name if plan is not None else vpn_user.ibsng_group
     status, expiry = await get_service_status(client, vpn_user.ibsng_username)
 
     if status == "active":
-        status_line = f"Status: ✅ Active until {expiry:%Y-%m-%d %H:%M} UTC"
+        status_line = t("status_line_active", lang, date=f"{expiry:%Y-%m-%d %H:%M}")
     elif status == "expired":
-        status_line = f"Status: ⛔ Expired on {expiry:%Y-%m-%d %H:%M} UTC"
+        status_line = t("status_line_expired", lang, date=f"{expiry:%Y-%m-%d %H:%M}")
     elif status == "pending":
-        status_line = "Status: ⏳ Not yet activated — validity starts on first connection."
+        status_line = t("status_line_pending", lang)
     else:
-        status_line = "Status: ⚠️ Couldn't check status right now."
+        status_line = t("status_line_unknown", lang)
 
     # Mirrors app/bot/handlers/trial.py's _send_trial_credentials: a
     # transient IBSng failure fetching the password must never crash the
@@ -74,7 +67,7 @@ async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPN
     except IBSngError:
         password = None
     password_line = (
-        f"Password: <code>{password}</code>" if password is not None else "Password: unavailable — contact support"
+        f"Password: <code>{password}</code>" if password is not None else t("password_unavailable", lang)
     )
 
     return (
@@ -86,26 +79,26 @@ async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPN
 
 
 @router.callback_query(F.data.startswith("myservices:view:"))
-async def myservices_view_cb(callback: CallbackQuery) -> None:
+async def myservices_view_cb(callback: CallbackQuery, lang: str) -> None:
     vpn_user_id = int(callback.data.split(":")[-1])
     telegram_id = callback.from_user.id
     async with async_session_maker() as session:
         vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
         if vpn_user is None:
             if callback.message is not None:
-                await callback.message.edit_text(_NOT_FOUND_TEXT, reply_markup=back_to_menu_keyboard())
+                await callback.message.edit_text(t("myservices_not_found", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
         async with IBSngClient() as client:
-            text = await _detail_text(session, client, vpn_user)
+            text = await _detail_text(session, client, vpn_user, lang)
 
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user.id))
+        await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user.id, lang))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("myservices:resend:"))
-async def myservices_resend_cb(callback: CallbackQuery) -> None:
+async def myservices_resend_cb(callback: CallbackQuery, lang: str) -> None:
     # callback_data is attacker-controlled (see the design spec's threat
     # model - ownership is checked below precisely because of this), so
     # every int() parse of a segment here is guarded: a malformed or
@@ -116,7 +109,7 @@ async def myservices_resend_cb(callback: CallbackQuery) -> None:
 
     async def _not_found() -> None:
         if callback.message is not None:
-            await callback.message.edit_text(_NOT_FOUND_TEXT, reply_markup=back_to_menu_keyboard())
+            await callback.message.edit_text(t("myservices_not_found", lang), reply_markup=back_to_menu_keyboard(lang))
         await callback.answer()
 
     try:
@@ -136,7 +129,7 @@ async def myservices_resend_cb(callback: CallbackQuery) -> None:
             protocols = await list_protocols(session)
             if callback.message is not None:
                 await callback.message.edit_text(
-                    _PROTOCOL_PROMPT_TEXT, reply_markup=myservices_protocol_keyboard(protocols, vpn_user_id)
+                    t("protocol_prompt", lang), reply_markup=myservices_protocol_keyboard(protocols, vpn_user_id, lang)
                 )
             await callback.answer()
             return
@@ -151,19 +144,19 @@ async def myservices_resend_cb(callback: CallbackQuery) -> None:
             protocol = await session.get(TutorialProtocol, protocol_id)
             if protocol is not None and protocol.label.strip().lower() == "openvpn":
                 delivered, _ = await deliver_setup(
-                    callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=None
+                    callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=None, lang=lang
                 )
-                text = _RESENT_TEXT if delivered else _RESEND_BLOCKED_TEXT
+                text = t("resent_confirmation", lang) if delivered else t("resend_blocked", lang)
                 if callback.message is not None:
-                    await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user_id))
+                    await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user_id, lang))
                 await callback.answer()
                 return
 
             platforms = await list_platforms(session)
             if callback.message is not None:
                 await callback.message.edit_text(
-                    _PLATFORM_PROMPT_TEXT,
-                    reply_markup=myservices_platform_keyboard(platforms, vpn_user_id, protocol_id),
+                    t("platform_prompt", lang),
+                    reply_markup=myservices_platform_keyboard(platforms, vpn_user_id, protocol_id, lang),
                 )
             await callback.answer()
             return
@@ -188,9 +181,9 @@ async def myservices_resend_cb(callback: CallbackQuery) -> None:
             return
 
         delivered, _ = await deliver_setup(
-            callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=platform_id
+            callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=platform_id, lang=lang
         )
-        text = _RESENT_TEXT if delivered else _RESEND_BLOCKED_TEXT
+        text = t("resent_confirmation", lang) if delivered else t("resend_blocked", lang)
         if callback.message is not None:
-            await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user_id))
+            await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user_id, lang))
         await callback.answer()
