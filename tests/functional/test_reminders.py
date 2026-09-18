@@ -393,6 +393,7 @@ async def test_language_lookup_failure_defaults_to_english_and_continues_batch(
     batch should continue processing any other candidates normally."""
     import datetime as dt
 
+    from app.services import reminders
     from app.services.reminders import send_due_reminders
 
     await _seed_vpn_user(760)
@@ -405,9 +406,7 @@ async def test_language_lookup_failure_defaults_to_english_and_continues_batch(
             raise RuntimeError("transient DB error")
         return None  # 761 has no language set, defaults to English
 
-    from app.services import bot_users
-
-    monkeypatch.setattr(bot_users, "get_language", _fake_get_language)
+    monkeypatch.setattr(reminders, "get_language", _fake_get_language)
 
     await send_due_reminders(bot)
 
