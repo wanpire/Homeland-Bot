@@ -52,7 +52,12 @@ Redis (FSM), pydantic-settings, Docker Compose.
 ## Conventions
 - Async only - no blocking I/O in handlers or services.
 - Type hints on every function signature.
-- All user-facing AND admin-facing strings in English.
+- Customer-facing strings are bilingual (fa/en) via app/i18n/texts.py's
+  t(key, lang) - see docs/superpowers/specs/2026-09-18-bilingual-customer-
+  flows-design.md. Admin-facing strings (everything under
+  app/bot/handlers/admin*.py, admin_settings, admin_block, broadcast,
+  tutorial_admin, and the adm:* screen tree) stay English-only - never
+  route an admin-only string through t().
 - IBSng operations (create/renew user) must be idempotent.
 - Keep handlers thin: parse input, call a service, reply.
 - New feature = new router + new service method, not a growing god-file.

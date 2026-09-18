@@ -10,13 +10,19 @@ this codebase, grounded in the actual keyboards/handlers already built
 (`app/bot/keyboards/menus.py`, `trial.py`, `tutorial_admin.py`, `admin.py`;
 `app/bot/handlers/*`). Follow these without being re-asked every session.
 
-## English-only copy
+## Bilingual customer-facing copy, English-only admin copy
 
-Every user-facing AND admin-facing string is English, full stop - no
-Persian/Farsi text anywhere in this bot (Homeland sells to Iranian
-customers living *abroad*, unlike its sibling project AloBot which is
-Persian-language for customers inside Iran - don't port AloBot's Farsi
-strings by habit).
+Customer-facing strings are bilingual (fa/en), selected once by the
+customer and reused thereafter - see
+docs/superpowers/specs/2026-09-18-bilingual-customer-flows-design.md.
+Every string shown to a customer goes through app/i18n/texts.py's
+t(key, lang, **kwargs), never a hardcoded literal.
+
+Admin-facing strings stay English-only, full stop - everything under
+app/bot/handlers/admin*.py, admin_settings, admin_block, broadcast,
+tutorial_admin, and the adm:* screen tree. Never route an admin-only
+string through t(), and never import app.i18n into an admin-facing
+handler module.
 
 ## Every interactive flow/menu has a Back or Cancel button
 
