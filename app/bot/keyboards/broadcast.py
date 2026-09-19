@@ -20,3 +20,12 @@ def broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="❌ Cancel", callback_data=CANCEL_CB)
     builder.adjust(1)
     return builder.as_markup()
+
+
+def broadcast_submenu_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📣 Announcement", callback_data="adm:broadcast:announce")
+    builder.button(text="🎯 Ad Campaign", callback_data="adm:broadcast:campaign")
+    builder.button(text="⬅️ Back to Admin Panel", callback_data="adm:root")
+    builder.adjust(1)
+    return builder.as_markup()
