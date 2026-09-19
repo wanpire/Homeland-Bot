@@ -45,6 +45,17 @@ Redis (FSM), pydantic-settings, Docker Compose.
   Standalone command, gated by `has_level(..., "support")`, listed in
   `set_my_commands`; it will become a button on the general `/admin`
   panel when that sub-project lands.
+- `app/services/broadcast.py` - the ONE outbound mass-messaging
+  pipeline (recipient rules, pacing, failure counts, summary DM). The
+  admin Broadcast button opens a submenu: Announcement
+  (`app/bot/handlers/broadcast.py`, plain message) and Ad Campaign
+  (`app/bot/handlers/campaign.py`, photo/text + optional single button
+  whose callback data is the main menu's own `menu:<key>`). Never add a
+  second send loop; extend `run_broadcast` instead.
+- `app/bot/keyboards/menus.py`'s `show_screen()` - main-menu section
+  entry handlers (`menu:buy/renew/trial/myservices/support`) render
+  through it, not `edit_text`, because a campaign photo's button reuses
+  their callback data and Telegram can't edit a photo into a text screen.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

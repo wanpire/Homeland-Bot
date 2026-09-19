@@ -53,6 +53,7 @@ menu:*        - main user menu (menu:root, menu:buy, menu:trial, ...)
 trial:*       - the free-trial flow (trial:confirm, trial:protocol:<id>, ...)
 tutadm:*      - the standalone /admintutorials content-upload flow
 adm:*         - the admin panel (adm:root, adm:users:renew, adm:discounts:new, ...)
+adm:broadcast:* - Broadcast submenu: adm:broadcast:announce (plain), adm:broadcast:campaign:* (Ad Campaign)
 ```
 
 Each root maps to exactly one router, registered once in
@@ -66,6 +67,17 @@ New feature = new router + new service method it calls - not a growing
 god-file. A router's handlers stay thin: parse the update, call a
 service function, render/reply. Business logic belongs in `app/services/`,
 never inline in a handler.
+
+## Main-menu section entry handlers render via show_screen()
+
+`menu:buy`, `menu:renew`, `menu:trial`, `menu:myservices` and `menu:support`
+call `app/bot/keyboards/menus.py`'s `show_screen(message, text, markup)`
+instead of `message.edit_text(...)`. An Ad Campaign photo's button carries
+exactly that callback data, and Telegram refuses to edit a photo message
+into a text screen - `show_screen` edits when the tapped message has text
+and sends a fresh message otherwise. Deeper screens keep `edit_text`
+(they always run on the fresh text message). Any new main-menu section
+that a campaign could point at must use `show_screen` for its entry.
 
 ## FSM state must be cleared on any navigation-away action
 
