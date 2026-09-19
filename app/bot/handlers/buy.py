@@ -12,6 +12,7 @@ from app.bot.keyboards.buy import (
     buy_price_summary_keyboard,
     payment_link_keyboard,
 )
+from app.bot.keyboards.menus import show_screen
 from app.bot.keyboards.trial import back_to_menu_keyboard
 from app.db.models.plan import Plan
 from app.db.session import async_session_maker
@@ -43,8 +44,8 @@ async def buy_start_cb(callback: CallbackQuery, lang: str) -> None:
     async with async_session_maker() as session:
         active_categories = await _buy_categories(session)
     if callback.message is not None:
-        await callback.message.edit_text(
-            t("buy_category_heading", lang), reply_markup=buy_category_keyboard(lang, active_categories)
+        await show_screen(
+            callback.message, t("buy_category_heading", lang), buy_category_keyboard(lang, active_categories)
         )
     await callback.answer()
 

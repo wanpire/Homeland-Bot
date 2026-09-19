@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.buy import payment_link_keyboard
+from app.bot.keyboards.menus import show_screen
 from app.bot.keyboards.renew import (
     renew_category_keyboard,
     renew_empty_keyboard,
@@ -94,12 +95,12 @@ async def renew_start_cb(callback: CallbackQuery, lang: str) -> None:
 
     if not rows:
         if callback.message is not None:
-            await callback.message.edit_text(t("renew_empty", lang), reply_markup=renew_empty_keyboard(lang))
+            await show_screen(callback.message, t("renew_empty", lang), renew_empty_keyboard(lang))
         await callback.answer()
         return
 
     if callback.message is not None:
-        await callback.message.edit_text(t("renew_list_heading", lang), reply_markup=renew_service_keyboard(rows, lang))
+        await show_screen(callback.message, t("renew_list_heading", lang), renew_service_keyboard(rows, lang))
     await callback.answer()
 
 

@@ -6,6 +6,7 @@ from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy import select
 
+from app.bot.keyboards.menus import show_screen
 from app.bot.keyboards.trial import back_to_menu_keyboard, trial_confirm_keyboard, trial_platform_keyboard, trial_protocol_keyboard
 from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
@@ -102,9 +103,9 @@ async def trial_entry_cb(callback: CallbackQuery, lang: str) -> None:
         await callback.answer()
         return
     if already_used:
-        await callback.message.edit_text(t("trial_already_used", lang), reply_markup=back_to_menu_keyboard(lang))
+        await show_screen(callback.message, t("trial_already_used", lang), back_to_menu_keyboard(lang))
     else:
-        await callback.message.edit_text(t("trial_confirm_prompt", lang), reply_markup=trial_confirm_keyboard(lang))
+        await show_screen(callback.message, t("trial_confirm_prompt", lang), trial_confirm_keyboard(lang))
     await callback.answer()
 
 

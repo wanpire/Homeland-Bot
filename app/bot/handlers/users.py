@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.keyboards.language import show_language_chooser
-from app.bot.keyboards.menus import main_menu, support_keyboard
+from app.bot.keyboards.menus import main_menu, show_screen, support_keyboard
 from app.config import get_settings
 from app.db.session import async_session_maker
 from app.i18n.texts import t
@@ -58,7 +58,7 @@ async def menu_support_cb(callback: CallbackQuery, lang: str) -> None:
     url = f"https://t.me/{support_username.lstrip('@')}" if support_username else None
     text = t("support_heading", lang) if url else t("support_not_configured", lang)
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=support_keyboard(url, lang))
+        await show_screen(callback.message, text, support_keyboard(url, lang))
     await callback.answer()
 
 

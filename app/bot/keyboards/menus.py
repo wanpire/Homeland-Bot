@@ -3,7 +3,7 @@ Pure keyboard builders only - no handler logic here."""
 
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.i18n.texts import t
@@ -37,3 +37,17 @@ def support_keyboard(url: str | None, lang: str) -> InlineKeyboardMarkup:
     builder.button(text=t("back_to_menu", lang), callback_data="menu:root")
     builder.adjust(1)
     return builder.as_markup()
+
+
+async def show_screen(message: Message, text: str, reply_markup: InlineKeyboardMarkup | None) -> None:
+    """Render a menu screen on the message the user tapped. A text
+    message is edited in place (the usual case); a message with no text -
+    an Ad Campaign photo whose button reuses main-menu callback data -
+    can't be edited into a text screen (Telegram: "there is no text in
+    the message to edit"), so a fresh message is sent instead. Every
+    deeper screen in the flow then runs on that fresh text message and
+    can keep using edit_text."""
+    if message.text is None:
+        await message.answer(text, reply_markup=reply_markup)
+    else:
+        await message.edit_text(text, reply_markup=reply_markup)
