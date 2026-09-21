@@ -1,115 +1,100 @@
 ---
 name: payment-provider-abstraction
-description: Homeland's PLANNED PaymentProvider interface for Stripe/crypto (create_invoice/verify_webhook/on_payment_confirmed) - NOT YET IMPLEMENTED. Use when building the payment foundation, app/services/payments/*, app/webhook.py, or any Buy/Renew flow that will eventually charge money.
+description: Homeland's implemented PaymentProvider abstraction - CryptoProvider over NOWPayments, the per-coin payability check that keeps low-priced plans payable, pay_currency-locked invoices, and the IPN webhook contract. Use when touching app/services/payments/*, app/webhook.py, or any Buy/Renew step that charges money.
 ---
 
-# Payment Provider Abstraction (Homeland) - PLANNED, NOT YET BUILT
+# Payment Provider Abstraction (Homeland)
 
-**Status check first:** as of this writing, `app/services/payments/`,
-`app/webhook.py`, and the `PaymentProvider` class described below **do not
-exist in this codebase**. Grep before trusting this skill's freshness:
+This is **built and live**. Read the real code first:
+`app/services/payments/{base,crypto_provider,nowpayments,minimums,currencies,service}.py`
+and `app/webhook.py`. This skill records the rules that are easy to break
+and expensive to get wrong. Designs:
+`docs/superpowers/specs/2026-09-16-crypto-payment-design.md` and
+`docs/superpowers/specs/2026-09-21-crypto-payability-design.md`.
 
-```bash
-grep -rn "class PaymentProvider" app/
-```
-
-If that now returns a hit, the abstraction has been built - read the real
-code instead of this skill, and update or delete this file. Until then,
-everything below is the **approved design**, not working code, sourced
-from `docs/superpowers/specs/2026-09-14-homeland-bot-design.md` §6. It
-exists so the interface gets built consistently whenever it does land,
-without re-deriving the design from scratch or re-explaining it in a
-fresh session.
-
-Why it's not built yet: the project's own standing instruction is to
-implement every other feature first and postpone the payment foundation
-until real Stripe/crypto API keys and gateway details are provided. Do
-not start implementing `app/services/payments/` unless the user has
-explicitly said the keys/details are now available.
-
-## The interface (spec §6)
+## The interface (`app/services/payments/base.py`)
 
 ```python
-# app/services/payments/base.py
 class PaymentProvider(ABC):
-    @abstractmethod
-    async def create_invoice(self, *, order_id: str, amount_usd: Decimal, description: str) -> str:
-        """Returns a URL (or client secret) to hand the buyer."""
-
-    @abstractmethod
-    async def verify_webhook(self, request: web.Request) -> WebhookEvent | None:
-        """Verifies signature, parses the callback. None if invalid/irrelevant."""
-
-    @abstractmethod
-    async def on_payment_confirmed(self, event: WebhookEvent) -> None:
-        """Creates/renews the VPN user and marks the Payment approved - one
-        unified path, since Homeland has no manual admin-approval branch."""
+    async def payable_currencies(self, amount_usd: Decimal) -> PayabilityReport
+    async def create_invoice(self, *, order_id, amount_usd, description, pay_currency=None) -> tuple[str, str]
+    def verify_webhook(self, raw_body: bytes, signature: str) -> WebhookEvent | None
 ```
 
-- Two implementations planned: `app/services/payments/stripe_provider.py`
-  and `crypto_provider.py`.
-- `on_payment_confirmed` is meant to call the same account-creation path
-  every other flow uses - `app/services/vpn_users.py`'s `create_vpn_user`
-  (see the `ibsng-xmlrpc-integration` skill for that function's
-  pre-check-before-external-call ordering, which a payment-confirmation
-  handler must follow too: verify the Payment row's local state before
-  ever touching IBSng, since a replayed webhook is exactly the kind of
-  duplicate-call scenario that pattern exists to guard against).
+Three methods, deliberately. A provider talks to its gateway; it never
+performs Homeland domain logic (no IBSng calls, no account creation).
+Confirming a payment lives in `service.activate_finished_payment`, called
+only from the webhook route - see the crypto spec §4 for why
+`on_payment_confirmed` is deliberately NOT a provider method.
 
-## Config placeholders that already exist (in `app/config.py`)
+## Never hardcode a coin's minimum
 
-These are real, already in the codebase, blank by default:
+NOWPayments enforces a per-coin minimum payment amount that drifts with
+network fees, and several Homeland plans sit near it. Every minimum comes
+from `GET /v1/min-amount` at runtime via
+`app/services/payments/minimums.py`, cached in Redis for 10 minutes with a
+6-hour stale fallback. Rules:
 
-```python
-stripe_api_key: str = ""
-stripe_webhook_secret: str = ""
-crypto_gateway_api_key: str = ""
-crypto_gateway_ipn_secret: str = ""
-crypto_gateway_ipn_callback_url: str = ""
-```
+- Accepted coins come from `Settings.nowpayments_pay_currency_list`
+  (`NOWPAYMENTS_PAY_CURRENCIES` in `.env`), never a literal list in a
+  handler. Adding TON is a `.env` change plus an optional label in
+  `currencies.py`.
+- A handler asks `service.check_payability(amount)` and renders the
+  resulting `PayabilityReport` through
+  `app/bot/handlers/_payability.py`'s `render_payability`. Never compare a
+  price against a number in handler code.
+- `min_amount` and `fiat_equivalent` are NOT interchangeable:
+  `min_amount` is in the coin's own units, `fiat_equivalent` is the USD
+  figure. `get_min_amount` returns the latter and omits `currency_to`, so
+  NOWPayments computes against the dashboard's outcome wallet.
+- Any new checkout path must price from `service.quote_amount(session,
+  plan)`, the same function the chooser uses. Pricing the chooser and the
+  invoice separately reintroduces the dead end this design removed.
 
-Per spec: calling `create_invoice` while a provider's key is blank must
-raise a clear `PaymentProviderNotConfiguredError` - not a confusing raw
-API failure - so the bot can run today with payment methods visibly
-"coming soon" in the UI until real keys are added.
+## Three outcomes, three different messages
 
-## Webhook routing (planned)
+`PayabilityReport.status` distinguishes failures that look alike and are
+not:
 
-`app/webhook.py` is meant to generalize into one route per registered
-provider - `/webhooks/stripe`, `/webhooks/crypto` - each provider
-verifying its own signature before touching the DB at all.
+- `payable` - at least one coin clears the amount: show the chooser.
+- `unpayable` - every minimum is known and higher than the price: tell the
+  buyer the plan is too cheap and route them to a pricier plan.
+- `unavailable` - we could not reach NOWPayments for some coin and none of
+  the rest can pay: an outage, so tell them to try again later.
 
-## Reference implementation pattern (sibling project, NOT Homeland)
+Collapsing `unavailable` into `unpayable` tells customers their plan is
+too cheap during an outage. `CryptoProvider.payable_currencies` also
+raises `PaymentProviderNotConfiguredError` up front on a blank API key,
+because the per-coin lookups would otherwise record a missing key as
+`unknown` and surface an outage message instead of "coming soon".
 
-The sibling project `/Users/peyman/telegram-bot` (AloBot - same author,
-same IBSng backend, but sells VPN in the opposite direction, priced in
-Toman, to customers inside Iran) already has a working hosted-invoice
-payment integration at `app/services/nowpayments.py`. It's the closest
-confirmed reference for the "hosted invoice + signed IPN webhook" shape
-`crypto_provider.py` is meant to follow - **but it is not a drop-in
-match**:
+## Invoices are locked to one coin
 
-- AloBot's gateway is NowPayments (crypto only); Homeland's crypto
-  gateway is unspecified/TBD - same *pattern*, different *provider*, so
-  don't assume the exact API calls transfer.
-- AloBot has no Stripe integration at all - Stripe is Homeland-only.
-- AloBot's flow includes a manual admin-approval branch
-  (`approve_payment_by_id`) that Homeland's spec explicitly says NOT to
-  replicate - `on_payment_confirmed` unifies what AloBot splits across a
-  webhook handler and an admin-approval command into one path.
+`create_invoice` passes `pay_currency`, so the hosted page cannot offer a
+coin whose minimum exceeds the price. A minimum can still move inside the
+cache window: NOWPayments then returns a 400 whose body mentions "min",
+which `nowpayments.create_invoice` raises as `PaymentBelowMinimumError`
+rather than a generic error. Callers recover by calling
+`minimums.invalidate(code)` and re-rendering the chooser. Never let that
+exception reach the buyer as a dead end.
 
-The pattern worth copying from `nowpayments.py`: hosted-invoice creation
-via a simple POST returning a `invoice_url`, and HMAC-based IPN signature
-verification with a canonical (sorted-keys) JSON re-encoding of the
-payload before computing the HMAC - see that file's `verify_ipn_signature`
-for the exact technique, since IPN/webhook signature verification is
-easy to get subtly wrong (e.g. verifying against the wrong byte
-representation of the payload).
+## Rules that predate this feature and still hold
 
-## When this skill is actually needed
+- A blank key raises `PaymentProviderNotConfiguredError`, never a raw API
+  failure, so the bot runs with crypto visibly unavailable.
+- `create_crypto_payment` commits the `Payment` row BEFORE calling the
+  provider, because `order_id` must be a real, permanent local id. A
+  failed invoice leaves a harmless orphan pending row.
+- The IPN handler verifies the HMAC-SHA512 signature over a sorted-keys
+  JSON re-encoding of the body before touching the database, and is
+  idempotent on `payment.status == "pending"`.
+- Do not add a second path into invoice creation, IBSng, or account
+  creation. `create_crypto_payment` and `create_vpn_user` are each the
+  single path.
 
-Only once the user provides real Stripe/crypto credentials and asks to
-build the Buy/Renew/payment flow. At that point: brainstorm and spec the
-concrete implementation (this skill is not a substitute for that process
-for a feature this size), using the interface above as the starting
-contract, and update this skill's status section once real code exists.
+## Admin diagnostics
+
+Settings → 💱 Crypto Minimums shows each coin's cached minimum, its age,
+whether it is fresh/stale/unknown, and the last NOWPayments error, with a
+force-refresh button. Use it when a buyer reports a missing coin before
+assuming a code bug.

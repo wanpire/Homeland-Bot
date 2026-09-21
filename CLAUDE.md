@@ -56,6 +56,14 @@ Redis (FSM), pydantic-settings, Docker Compose.
   entry handlers (`menu:buy/renew/trial/myservices/support`) render
   through it, not `edit_text`, because a campaign photo's button reuses
   their callback data and Telegram can't edit a photo into a text screen.
+- `app/services/payments/minimums.py` - the ONLY place that learns a
+  coin's NOWPayments minimum payable amount (live `GET /v1/min-amount`,
+  Redis-cached 10 min, 6 h stale fallback). No per-coin threshold is ever
+  hardcoded. Buy and Renew ask `service.check_payability(amount)` and
+  offer only the coins that clear it, then lock the invoice to the chosen
+  coin via `pay_currency` - so a buyer can never dead-end on the hosted
+  page. Coins come from `NOWPAYMENTS_PAY_CURRENCIES`; adding one is a
+  `.env` change plus an optional label in `payments/currencies.py`.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).
