@@ -52,16 +52,24 @@ async def get_min_amount(*, currency_from: str) -> Decimal:
     "0.21" for LTC), not USD. Confirmed against the real API on
     2026-09-18.
 
-    currency_to is deliberately omitted: the API docs state NOWPayments
-    then calculates the minimum against the outcome currency configured
-    in Payment Settings (Homeland's USDT TRC-20 wallet), which is the
-    pair an invoice actually settles on."""
+    currency_to is ALWAYS sent, set to our settlement currency. The API
+    docs claim that omitting it falls back to the outcome currency
+    configured in Payment Settings; live testing on 2026-09-21 proved
+    otherwise - omitted, the response carries currency_to="false" and
+    prices the coin against ITSELF, reporting TRX at $0.25 rather than
+    its true $12.31 against USDT TRC-20. Trusting that would offer coins
+    for plans they cannot actually pay, which is the exact dead end this
+    lookup exists to prevent."""
     settings = get_settings()
     if not settings.nowpayments_api_key:
         raise PaymentProviderNotConfiguredError("NOWPAYMENTS_API_KEY is not set")
 
     headers = {"x-api-key": settings.nowpayments_api_key}
-    params = {"currency_from": currency_from, "fiat_equivalent": "usd"}
+    params = {
+        "currency_from": currency_from,
+        "currency_to": settings.nowpayments_settlement_currency,
+        "fiat_equivalent": "usd",
+    }
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:

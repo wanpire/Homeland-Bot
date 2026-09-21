@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     # live from GET /v1/min-amount, see app/services/payments/minimums.py.
     nowpayments_pay_currencies: str = "usdttrc20,usdtbsc,trx,ltc"
 
+    # The coin our NOWPayments payout wallet settles in. Used as
+    # min-amount's currency_to: a coin's real minimum is the minimum for
+    # converting it INTO this currency. Verified live on 2026-09-21 -
+    # omitting currency_to does NOT fall back to the dashboard wallet as
+    # the API docs claim; it prices the coin against itself and reported
+    # TRX at $0.25 instead of its true $12.31, which would have offered
+    # TRX for plans it cannot actually pay. Change this only if the
+    # dashboard payout wallet changes.
+    nowpayments_settlement_currency: str = "usdttrc20"
+
     # Used only to build NOWPayments' optional success_url/cancel_url
     # (a deep link back into the bot after the hosted payment page) -
     # blank means those params are simply omitted from the invoice

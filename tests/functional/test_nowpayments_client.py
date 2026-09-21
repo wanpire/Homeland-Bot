@@ -323,12 +323,13 @@ def test_verify_ipn_signature_rejects_blank_secret() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_min_amount_omits_currency_to_so_the_dashboard_wallet_is_used(
+async def test_get_min_amount_prices_against_the_settlement_currency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """currency_to is deliberately absent: NOWPayments then computes the
-    minimum against the outcome wallet configured in the dashboard
-    (USDT TRC-20), which is the pair the invoice actually settles on."""
+    """currency_to must be sent. Verified live on 2026-09-21: omitting it
+    prices a coin against itself (TRX came back at $0.25 instead of its
+    real $12.31 against USDT TRC-20), which would offer coins for plans
+    they cannot pay - the exact dead end this lookup prevents."""
     from app.services.payments import nowpayments
 
     captured: dict[str, Any] = {}
@@ -342,7 +343,7 @@ async def test_get_min_amount_omits_currency_to_so_the_dashboard_wallet_is_used(
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
 
     assert await nowpayments.get_min_amount(currency_from="ltc") == Decimal("12.08")
-    assert "currency_to" not in captured["params"]
+    assert captured["params"]["currency_to"] == "usdttrc20"
     assert captured["params"]["fiat_equivalent"] == "usd"
 
 

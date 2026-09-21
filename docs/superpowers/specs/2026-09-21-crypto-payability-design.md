@@ -30,14 +30,26 @@ From the official Postman collection (`documenter.getpostman.com/view/7907941/2s
 - `GET /v1/min-amount?currency_from=<coin>&fiat_equivalent=usd` returns
   `{"currency_from", "currency_to", "min_amount", "fiat_equivalent"}`.
   `fiat_equivalent` is the USD figure (confirmed live 2026-09-18);
-  `min_amount` is in the coin's own units. When `currency_to` is
-  omitted, NOWPayments "will calculate the minimum payment amount for
-  currency_from and currency which you have specified as the outcome in
-  the Payment Settings" — i.e. against the real USDT TRC-20 outcome
-  wallet. The current client passes `currency_to=usd`; this spec omits
-  it so the minimum matches the pair the invoice actually settles on.
-  **Verify live** (§10) that the response shape is unchanged; if
-  omitting `currency_to` errors, fall back to `currency_to=usdttrc20`.
+  `min_amount` is in the coin's own units. The docs claim that when
+  `currency_to` is omitted, NOWPayments "will calculate the minimum
+  payment amount for currency_from and currency which you have specified
+  as the outcome in the Payment Settings".
+
+  **Live testing on 2026-09-21 disproved that.** Omitted, the response
+  carries `currency_to: "false"` and prices each coin against itself:
+
+  | coin | currency_to omitted | currency_to=usdttrc20 |
+  |---|---|---|
+  | usdttrc20 | $11.71 | $11.71 |
+  | usdtbsc | $12.44 | $12.44 |
+  | trx | **$0.25** | **$12.31** |
+  | ltc | $12.31 | $12.31 |
+
+  TRX is the coin that exposes it: omitted, we would have believed a $5
+  plan was payable in TRX and sent the buyer to an invoice they could not
+  pay — the exact dead end this feature removes. The client therefore
+  ALWAYS sends `currency_to`, set to `Settings.nowpayments_settlement_currency`
+  (default `usdttrc20`, the dashboard's payout wallet).
 - `POST /v1/invoice` accepts optional `pay_currency`; "If not specified,
   can be chosen on the invoice_url". With it set, the hosted page is
   locked to that coin.
@@ -55,6 +67,9 @@ From the official Postman collection (`documenter.getpostman.com/view/7907941/2s
 # never hardcode a per-coin minimum anywhere; minimums come live from
 # GET /v1/min-amount.
 nowpayments_pay_currencies: str = "usdttrc20,usdtbsc,trx,ltc"
+
+# The coin the payout wallet settles in; sent as min-amount's currency_to.
+nowpayments_settlement_currency: str = "usdttrc20"
 
 @property
 def nowpayments_pay_currency_list(self) -> list[str]:
@@ -243,8 +258,9 @@ only, mirroring the other settings screens.
 
 1. Admin → Settings → Crypto Minimums → Refresh: all four coins fresh
    with plausible USD minimums (~$10–15 range as of 2026-09-18).
-2. Confirm `GET /v1/min-amount` without `currency_to` returns
-   `fiat_equivalent`; else switch to `currency_to=usdttrc20`.
+2. Done 2026-09-21: `currency_to` must be sent explicitly (see §2).
+   `nowpayments_settlement_currency` carries it, so a dashboard payout
+   change is a config change, not a code change.
 3. Buy a $5 plan: chooser shows only coins whose minimum ≤ $5 (likely
    none today → unpayable message). Buy a $12+ plan: chooser lists the
    payable coins; open the link and confirm the NOWPayments page is
