@@ -17,7 +17,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "menu_tutorials": "📚 Tutorials",
         "menu_support": "☎️ Support",
         "menu_language": "🌐 Language",
-        "placeholder_coming_soon": "🚧 This feature is coming soon.",
         "support_heading": "☎️ <b>Support</b>\n\nTap the button below to contact support.",
         "support_not_configured": "☎️ Support contact isn't configured yet. Please check back soon.",
         "contact_support_button": "☎️ Contact Support",
@@ -82,6 +81,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "username_label": "Username",
         "password_label": "Password",
         "password_unavailable": "Password: unavailable — contact support",
+        "tutorials_heading": (
+            "📚 <b>Tutorials</b>\n\n"
+            "Pick the protocol you want to set up — we'll send the guide, the app "
+            "download link, and the connection profile where one applies."
+        ),
+        "tutorials_empty": "📚 Setup guides aren't available yet — please contact support.",
+        "tutorials_done": "📚 That's everything for this setup. Need another one?",
+        "tutorials_another_button": "📚 Another guide",
         "protocol_prompt": "🔌 Which protocol do you want to use?",
         "platform_prompt": "📱 Which device do you want to set it up on?",
         "resent_confirmation": "✅ Sent — check the message above.",
@@ -166,7 +173,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "menu_tutorials": "📚 آموزش‌ها",
         "menu_support": "☎️ پشتیبانی",
         "menu_language": "🌐 زبان",
-        "placeholder_coming_soon": "🚧 این قابلیت به‌زودی اضافه می‌شود.",
         "support_heading": "☎️ <b>پشتیبانی</b>\n\nبرای تماس با پشتیبانی روی دکمه زیر بزنید.",
         "support_not_configured": "☎️ اطلاعات تماس پشتیبانی هنوز تنظیم نشده. لطفاً بعداً دوباره سر بزنید.",
         "contact_support_button": "☎️ تماس با پشتیبانی",
@@ -227,6 +233,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "username_label": "نام کاربری",
         "password_label": "رمز عبور",
         "password_unavailable": "رمز عبور: در دسترس نیست — با پشتیبانی تماس بگیرید",
+        "tutorials_heading": (
+            "📚 <b>آموزش‌ها</b>\n\n"
+            "پروتکلی که می‌خواهید تنظیم کنید را انتخاب کنید — راهنما، لینک دانلود "
+            "اپلیکیشن و در صورت وجود فایل اتصال برایتان ارسال می‌شود."
+        ),
+        "tutorials_empty": "📚 هنوز راهنمای تنظیمات در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید.",
+        "tutorials_done": "📚 این تنظیمات کامل شد. راهنمای دیگری لازم دارید؟",
+        "tutorials_another_button": "📚 راهنمای دیگر",
         "protocol_prompt": "🔌 کدام پروتکل را می‌خواهید استفاده کنید؟",
         "platform_prompt": "📱 روی کدام دستگاه می‌خواهید تنظیم کنید؟",
         "resent_confirmation": "✅ ارسال شد — پیام بالا را بررسی کنید.",

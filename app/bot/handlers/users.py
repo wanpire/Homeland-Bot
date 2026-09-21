@@ -15,11 +15,6 @@ from app.services.bot_users import set_language
 
 router = Router(name="users")
 
-_PLACEHOLDER_CALLBACKS = {
-    "menu:tutorials",
-}
-
-
 async def _is_admin(telegram_id: int) -> bool:
     async with async_session_maker() as session:
         return await has_level(session, telegram_id, "support")
@@ -41,11 +36,6 @@ async def menu_root_cb(callback: CallbackQuery, lang: str) -> None:
         is_admin = await _is_admin(callback.from_user.id)
         await callback.message.edit_text(t("welcome", lang), reply_markup=main_menu(is_admin=is_admin, lang=lang))
     await callback.answer()
-
-
-@router.callback_query(F.data.in_(_PLACEHOLDER_CALLBACKS))
-async def placeholder_cb(callback: CallbackQuery, lang: str) -> None:
-    await callback.answer(t("placeholder_coming_soon", lang), show_alert=True)
 
 
 @router.callback_query(F.data == "menu:support")

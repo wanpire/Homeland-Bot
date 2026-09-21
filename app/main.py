@@ -12,7 +12,7 @@ from aiohttp import web
 from app.bot.error_handlers import handle_pool_timeout
 from app.bot.handlers import (
     admin, admin_admins, admin_block, admin_discounts, admin_fallback, admin_renew, admin_settings,
-    broadcast, buy, campaign, fallback, myservices, renew, trial, tutorial_admin, users,
+    broadcast, buy, campaign, fallback, myservices, renew, trial, tutorial_admin, tutorials, users,
 )
 from app.bot.middlewares.blocked_user import BlockedUserMiddleware
 from app.bot.middlewares.language import LanguageMiddleware
@@ -71,6 +71,7 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.include_router(buy.router)
     dp.include_router(renew.router)
     dp.include_router(myservices.router)
+    dp.include_router(tutorials.router)
     dp.include_router(users.router)
     dp.include_router(trial.router)
     dp.include_router(tutorial_admin.router)

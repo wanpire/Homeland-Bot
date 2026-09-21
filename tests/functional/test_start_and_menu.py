@@ -41,17 +41,18 @@ async def test_start_shows_admin_button_for_admin(dispatcher: Any, bot: Any, fak
 
 
 @pytest.mark.asyncio
-async def test_placeholder_callbacks_answer_coming_soon(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    for callback_data in (
-        "menu:tutorials",
-    ):
-        fake_session.reset()
-        update = make_callback_update(999, callback_data)
-        await dispatcher.feed_update(bot, update)
+async def test_menu_tutorials_opens_the_real_section(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    """Tutorials was a coming-soon placeholder until the section shipped -
+    tapping it must now render the protocol picker, not an alert."""
+    await dispatcher.feed_update(bot, make_callback_update(999, "menu:tutorials"))
 
-        answered = [call for call in fake_session.calls if call[0] == "answerCallbackQuery"]
-        assert len(answered) == 1
-        assert "coming soon" in answered[0][1]["text"].lower()
+    answered = [call for call in fake_session.calls if call[0] == "answerCallbackQuery"]
+    assert not any("coming soon" in (call[1].get("text") or "").lower() for call in answered)
+
+    screens = [c for c in fake_session.calls if c[0] in ("editMessageText", "sendMessage")]
+    buttons = [b["text"] for row in screens[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "OpenVPN" in buttons and "L2TP" in buttons
+    assert any("back" in b.lower() for b in buttons)
 
 
 @pytest.mark.asyncio

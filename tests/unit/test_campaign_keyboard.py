@@ -38,5 +38,9 @@ def test_custom_button_with_url_destination() -> None:
     assert btn.text == "Site" and btn.url == "https://x.y" and btn.callback_data is None
 
 
-def test_sections_exclude_language_and_tutorials() -> None:
-    assert "language" not in CAMPAIGN_SECTIONS and "tutorials" not in CAMPAIGN_SECTIONS
+def test_sections_exclude_language_but_include_tutorials() -> None:
+    """Language is not a campaign destination. Tutorials was excluded only
+    while it was a coming-soon placeholder and joined the list when the
+    real section shipped."""
+    assert "language" not in CAMPAIGN_SECTIONS
+    assert "tutorials" in CAMPAIGN_SECTIONS

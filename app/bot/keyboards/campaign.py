@@ -14,9 +14,10 @@ from app.i18n.texts import t
 # Main-menu sections a campaign button may point at. Each key maps to the
 # main menu's own callback data ("menu:<key>") and label ("menu_<key>"),
 # so tapping a campaign button lands exactly where the main menu's button
-# does. Tutorials (still a coming-soon placeholder) and Language are
-# deliberately absent.
-CAMPAIGN_SECTIONS: tuple[str, ...] = ("buy", "renew", "trial", "myservices", "support")
+# does. Language is deliberately absent - it is not a campaign
+# destination. Tutorials was absent while it was a coming-soon
+# placeholder and joined the list when the real section shipped.
+CAMPAIGN_SECTIONS: tuple[str, ...] = ("buy", "renew", "trial", "myservices", "tutorials", "support")
 
 # Admin-facing section names for the chooser screens.
 SECTION_ADMIN_LABELS: dict[str, str] = {
@@ -24,6 +25,7 @@ SECTION_ADMIN_LABELS: dict[str, str] = {
     "renew": "♻️ Renew Service",
     "trial": "🎁 Free Trial",
     "myservices": "🛍 My Services",
+    "tutorials": "📚 Tutorials",
     "support": "☎️ Support",
 }
 
