@@ -43,6 +43,17 @@ class PaymentProviderNotConfiguredError(Exception):
     key is provisioned."""
 
 
+def _redact(text: str) -> str:
+    """Strip the secret key out of anything bound for an exception or log.
+
+    Plisio echoes api_key back inside the _links URLs of its own
+    responses (confirmed live on 2026-09-22), so quoting a response body
+    verbatim - which every error path here does - would otherwise write
+    the key into the logs."""
+    key = get_settings().plisio_secret_key
+    return text.replace(key, "***") if key else text
+
+
 def _secret_key() -> str:
     key = get_settings().plisio_secret_key
     if not key:
@@ -57,13 +68,15 @@ async def _get(action: str, params: dict[str, str]) -> Any:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.get(f"{_BASE_URL}/{action}", params=query)
     except httpx.RequestError as exc:
-        raise PlisioError(f"Plisio {action} request failed: {exc}") from exc
+        # httpx puts the full request URL, api_key included, in its
+        # message for some transport errors.
+        raise PlisioError(f"Plisio {action} request failed: {_redact(str(exc))}") from exc
 
     try:
         body = response.json()
     except ValueError as exc:
         raise PlisioError(
-            f"Plisio {action} returned non-JSON (http {response.status_code}): {response.text[:200]}"
+            f"Plisio {action} returned non-JSON (http {response.status_code}): {_redact(response.text[:200])}"
         ) from exc
 
     if not isinstance(body, dict) or body.get("status") != "success":
@@ -72,7 +85,7 @@ async def _get(action: str, params: dict[str, str]) -> Any:
         code = data.get("code") if isinstance(data, dict) else None
         raise PlisioError(
             f"Plisio {action} failed (http {response.status_code}, code {code}): "
-            f"{message or response.text[:200]}"
+            f"{_redact(str(message or response.text[:200]))}"
         )
     return body.get("data")
 
@@ -105,7 +118,7 @@ async def create_invoice(*, order_id: str, amount: Decimal, description: str) ->
     invoice_url = data.get("invoice_url") if isinstance(data, dict) else None
     txn_id = data.get("txn_id") if isinstance(data, dict) else None
     if not invoice_url or not txn_id:
-        raise PlisioError(f"Plisio invoice response missing invoice_url/txn_id: {data!r}")
+        raise PlisioError(f"Plisio invoice response missing invoice_url/txn_id: {_redact(repr(data))}")
     return str(invoice_url), str(txn_id)
 
 
@@ -114,7 +127,7 @@ async def list_currencies() -> list[dict[str, Any]]:
     this account has it enabled. Read-only, for the admin screen."""
     data = await _get("currencies/USD", {})
     if not isinstance(data, list):
-        raise PlisioError(f"Plisio currencies response was not a list: {data!r}")
+        raise PlisioError(f"Plisio currencies response was not a list: {_redact(repr(data))}")
     return [row for row in data if isinstance(row, dict)]
 
 

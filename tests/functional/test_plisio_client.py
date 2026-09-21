@@ -227,3 +227,45 @@ async def test_list_currencies_returns_the_data_list(monkeypatch: pytest.MonkeyP
 
     coins = await plisio.list_currencies()
     assert [c["cid"] for c in coins] == ["LTC"]
+
+
+@pytest.mark.asyncio
+async def test_error_messages_never_leak_the_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plisio echoes api_key back inside the _links URLs of its own
+    responses, so an error body quoted verbatim would write the secret
+    into the logs."""
+    from app.services.payments import plisio
+
+    async def _fake_get(self: httpx.AsyncClient, url: str, *, params: dict[str, str]) -> _FakeResponse:
+        return _FakeResponse(400, {
+            "status": "error",
+            "data": {"message": f"bad request, see https://api.plisio.net/api/v1/operations?api_key={SECRET}"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    with pytest.raises(plisio.PlisioError) as excinfo:
+        await plisio.create_invoice(order_id="1", amount=Decimal("5.00"), description="x")
+    assert SECRET not in str(excinfo.value)
+    assert "***" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_non_json_error_also_redacts_the_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.payments import plisio
+
+    class _NonJson:
+        status_code = 500
+        text = f"gateway error for api_key={SECRET}"
+
+        def json(self) -> Any:
+            raise ValueError("not JSON")
+
+    async def _fake_get(self: httpx.AsyncClient, url: str, *, params: dict[str, str]):
+        return _NonJson()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    with pytest.raises(plisio.PlisioError) as excinfo:
+        await plisio.list_currencies()
+    assert SECRET not in str(excinfo.value)
