@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     nowpayments_ipn_secret: str = ""
     nowpayments_ipn_callback_url: str = ""
 
+    # Coins a customer may pay with, as NOWPayments currency codes, in the
+    # order the payment chooser lists them. Each must also be enabled in
+    # the NOWPayments dashboard's coin settings. Extend here (e.g. add
+    # ",ton") - never hardcode a per-coin minimum anywhere: minimums come
+    # live from GET /v1/min-amount, see app/services/payments/minimums.py.
+    nowpayments_pay_currencies: str = "usdttrc20,usdtbsc,trx,ltc"
+
     # Used only to build NOWPayments' optional success_url/cancel_url
     # (a deep link back into the bot after the hosted payment page) -
     # blank means those params are simply omitted from the invoice
@@ -70,6 +77,10 @@ class Settings(BaseSettings):
     # instead. Real confirmation always happens via the IPN-triggered
     # Telegram message regardless, so this is cosmetic only.
     bot_username: str = ""
+
+    @property
+    def nowpayments_pay_currency_list(self) -> list[str]:
+        return [code.strip().lower() for code in self.nowpayments_pay_currencies.split(",") if code.strip()]
 
     @property
     def admin_id_list(self) -> list[int]:
