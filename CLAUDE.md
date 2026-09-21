@@ -57,11 +57,14 @@ Redis (FSM), pydantic-settings, Docker Compose.
   through it, not `edit_text`, because a campaign photo's button reuses
   their callback data and Telegram can't edit a photo into a text screen.
 - `app/bot/handlers/tutorials.py` - the customer Tutorials section
-  (`menu:tutorials`, `tut:*`). Protocol first, then device, matching
-  Trial and My Services; OpenVPN skips the device step because its guide
-  is stored platform-independently. Delivery goes through
-  `tutorial_delivery.deliver_setup` - never add a second path that sends
-  guides, profiles or download links.
+  (`menu:tutorials`, `tut:*`). Protocol first, then device, for EVERY
+  protocol including OpenVPN (whose guide falls back to the generic
+  upload when no per-device one exists). The guide is sent automatically;
+  the download link and OpenVPN profile are separate buttons, rendered
+  only when that content exists. All sending goes through
+  `app/services/tutorial_delivery.py`'s `send_guide` / `send_profile` /
+  `send_download_links`, which `deliver_setup` also composes for Trial
+  and My Services - never add a second path that sends this material.
 - `app/services/payments/plisio.py` - the ONLY place that talks to
   Plisio. GET-only API (`api_key` as a query param, `{"status","data"}`
   envelopes, so a failure can arrive with HTTP 200), and ONE secret key

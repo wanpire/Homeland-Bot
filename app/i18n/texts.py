@@ -88,6 +88,12 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "tutorials_empty": "📚 Setup guides aren't available yet — please contact support.",
         "tutorials_done": "📚 That's everything for this setup. Need another one?",
+        "tutorials_extras_prompt": (
+            "📚 Guide sent. Need the app download link or the connection profile too?"
+        ),
+        "tutorials_item_unavailable": "⚠️ That isn't available yet — please contact support.",
+        "download_link_button": "📥 Download Link",
+        "openvpn_profile_button": "📄 OpenVPN Profile",
         "tutorials_another_button": "📚 Another guide",
         "protocol_prompt": "🔌 Which protocol do you want to use?",
         "platform_prompt": "📱 Which device do you want to set it up on?",
@@ -240,6 +246,12 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "tutorials_empty": "📚 هنوز راهنمای تنظیمات در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید.",
         "tutorials_done": "📚 این تنظیمات کامل شد. راهنمای دیگری لازم دارید؟",
+        "tutorials_extras_prompt": (
+            "📚 راهنما ارسال شد. لینک دانلود اپلیکیشن یا فایل اتصال هم لازم دارید؟"
+        ),
+        "tutorials_item_unavailable": "⚠️ این مورد هنوز در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید.",
+        "download_link_button": "📥 لینک دانلود",
+        "openvpn_profile_button": "📄 فایل اتصال OpenVPN",
         "tutorials_another_button": "📚 راهنمای دیگر",
         "protocol_prompt": "🔌 کدام پروتکل را می‌خواهید استفاده کنید؟",
         "platform_prompt": "📱 روی کدام دستگاه می‌خواهید تنظیم کنید؟",

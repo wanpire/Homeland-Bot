@@ -34,10 +34,31 @@ def tutorials_platform_keyboard(platforms: list[TutorialPlatform], protocol_id: 
     return builder.as_markup()
 
 
+def tutorials_extras_keyboard(
+    protocol_id: int, platform_id: int, *, has_link: bool, has_profile: bool, lang: str
+) -> InlineKeyboardMarkup:
+    """Sent under the delivered guide. The download link and the OpenVPN
+    profile are buttons rather than automatic sends, so a user takes only
+    what they need - and each button appears ONLY when that content is
+    actually configured, so tapping one can never answer "nothing here".
+    The keyboard stays put after a tap, so both can be fetched in turn."""
+    builder = InlineKeyboardBuilder()
+    sizes: list[int] = []
+    if has_link:
+        builder.button(text=t("download_link_button", lang), callback_data=f"tut:link:{protocol_id}:{platform_id}")
+        sizes.append(1)
+    if has_profile:
+        builder.button(text=t("openvpn_profile_button", lang), callback_data=f"tut:profile:{protocol_id}:{platform_id}")
+        sizes.append(1)
+    builder.button(text=t("tutorials_another_button", lang), callback_data="menu:tutorials")
+    builder.button(text=t("back_to_menu", lang), callback_data="menu:root")
+    sizes += [1, 1]
+    builder.adjust(*sizes)
+    return builder.as_markup()
+
+
 def tutorials_done_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Sent after a delivery so the section never dead-ends: the guide
-    arrives as fresh messages, leaving the last screen's own keyboard
-    scrolled far above."""
+    """The no-extras version: nothing to offer beyond moving on."""
     builder = InlineKeyboardBuilder()
     builder.button(text=t("tutorials_another_button", lang), callback_data="menu:tutorials")
     builder.button(text=t("back_to_menu", lang), callback_data="menu:root")
