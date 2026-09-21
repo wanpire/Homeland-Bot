@@ -14,12 +14,21 @@ from app.db.session import async_session_maker
 from tests.fakes.fake_bot_session import FakeBotSession
 
 
-def _sign(payload: dict[str, Any], secret: str | None = None) -> tuple[bytes, str]:
-    secret = secret if secret is not None else get_settings().nowpayments_ipn_secret
-    raw_body = json.dumps(payload).encode()
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    signature = hmac.new(secret.encode(), canonical.encode(), hashlib.sha512).hexdigest()
-    return raw_body, signature
+_HEADERS = {"Content-Type": "application/json"}
+
+
+def _sign(payload: dict[str, Any], secret: str | None = None) -> tuple[bytes, dict[str, str]]:
+    """Build a correctly signed Plisio callback.
+
+    Plisio signs with HMAC-SHA1 over the compact JSON payload with
+    verify_hash removed, keyed with the SAME secret that authenticates
+    API calls, and carries the hash INSIDE the body - there is no
+    signature header, unlike NOWPayments' x-nowpayments-sig."""
+    secret = secret if secret is not None else get_settings().plisio_secret_key
+    encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    digest = hmac.new(secret.encode(), encoded.encode(), hashlib.sha1).hexdigest()
+    raw_body = json.dumps({**payload, "verify_hash": digest}, separators=(",", ":"), ensure_ascii=False).encode()
+    return raw_body, _HEADERS
 
 
 async def _make_client(bot: Any) -> TestClient:
@@ -40,8 +49,8 @@ def _plan_id(seeded_catalog: dict, *, category: str, name: str) -> int:
 async def test_webhook_rejects_invalid_signature(bot: Any) -> None:
     client = await _make_client(bot)
     try:
-        raw_body, _ = _sign({"order_id": "1", "payment_status": "finished"})
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": "wrong"})
+        raw_body, headers = _sign({"order_number": "1", "status": "completed"}, secret="the-wrong-secret")
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 401
     finally:
         await client.close()
@@ -51,8 +60,8 @@ async def test_webhook_rejects_invalid_signature(bot: Any) -> None:
 async def test_webhook_ignores_unknown_order_id(bot: Any) -> None:
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({"order_id": "999999", "payment_status": "finished", "payment_id": "np-x"})
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        raw_body, headers = _sign({"order_number": "999999", "status": "completed", "txn_id": "plisio-x"})
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 200
     finally:
         await client.close()
@@ -62,8 +71,8 @@ async def test_webhook_ignores_unknown_order_id(bot: Any) -> None:
 async def test_webhook_ignores_out_of_int32_range_order_id(bot: Any) -> None:
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({"order_id": "99999999999", "payment_status": "finished", "payment_id": "np-x"})
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        raw_body, headers = _sign({"order_number": "99999999999", "status": "completed", "txn_id": "plisio-x"})
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 200
     finally:
         await client.close()
@@ -76,8 +85,8 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/wh1", "np-wh-1"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/wh1", "plisio-wh-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -86,15 +95,15 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=970, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=970, purpose="purchase", plan=plan, vpn_user=None)
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-wh-1", "payment_status": "finished",
-            "actually_paid": "5.0",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-wh-1", "status": "completed",
+            "amount": "5.0",
         })
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 200
     finally:
         await client.close()
@@ -124,8 +133,8 @@ async def test_payment_confirmed_message_in_persian(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/wh-fa1", "np-wh-fa1"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/wh-fa1", "plisio-wh-fa1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -134,7 +143,7 @@ async def test_payment_confirmed_message_in_persian(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=990, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=990, purpose="purchase", plan=plan, vpn_user=None)
 
     async with async_session_maker() as session:
         await record_seen(session, 990, None)
@@ -142,11 +151,11 @@ async def test_payment_confirmed_message_in_persian(
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-wh-fa1", "payment_status": "finished",
-            "actually_paid": "5.0",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-wh-fa1", "status": "completed",
+            "amount": "5.0",
         })
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 200
     finally:
         await client.close()
@@ -163,8 +172,8 @@ async def test_webhook_duplicate_finished_delivery_is_idempotent(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/wh2", "np-wh-2"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/wh2", "plisio-wh-2"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -173,16 +182,16 @@ async def test_webhook_duplicate_finished_delivery_is_idempotent(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=971, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=971, purpose="purchase", plan=plan, vpn_user=None)
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-wh-2", "payment_status": "finished",
-            "actually_paid": "5.0",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-wh-2", "status": "completed",
+            "amount": "5.0",
         })
         for _ in range(2):
-            response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+            response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
             assert response.status == 200
     finally:
         await client.close()
@@ -206,8 +215,8 @@ async def test_webhook_partially_paid_does_not_activate_and_shows_no_dollar_figu
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/wh3", "np-wh-3"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/wh3", "plisio-wh-3"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -216,15 +225,15 @@ async def test_webhook_partially_paid_does_not_activate_and_shows_no_dollar_figu
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=972, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=972, purpose="purchase", plan=plan, vpn_user=None)
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-wh-3", "payment_status": "partially_paid",
-            "actually_paid": "3.0",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-wh-3", "status": "expired",
+            "amount": "3.0",
         })
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 200
     finally:
         await client.close()
@@ -257,8 +266,8 @@ async def test_webhook_failed_marks_payment_failed(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/wh4", "np-wh-4"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/wh4", "plisio-wh-4"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -267,14 +276,14 @@ async def test_webhook_failed_marks_payment_failed(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=973, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=973, purpose="purchase", plan=plan, vpn_user=None)
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-wh-4", "payment_status": "expired",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-wh-4", "status": "expired",
         })
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 200
     finally:
         await client.close()
@@ -300,7 +309,7 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
     from app.services.vpn_users import VPNUsernameTakenError
 
     async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None):
-        return "https://nowpayments.io/payment/wh5", "np-wh-5"
+        return "https://plisio.net/invoice/wh5", "plisio-wh-5"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -308,7 +317,7 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=974, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=974, purpose="purchase", plan=plan, vpn_user=None)
 
     async def _boom(*args, **kwargs):
         raise VPNUsernameTakenError("collision")
@@ -325,11 +334,11 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-wh-5", "payment_status": "finished",
-            "actually_paid": "5.0",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-wh-5", "status": "completed",
+            "amount": "5.0",
         })
-        response = await client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
         assert response.status == 200
     finally:
         await client.close()
@@ -346,8 +355,8 @@ async def test_webhook_finished_after_partially_paid_still_activates(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/topup", "np-topup-1"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/topup", "plisio-topup-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -355,22 +364,22 @@ async def test_webhook_finished_after_partially_paid_still_activates(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=980, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=980, purpose="purchase", plan=plan, vpn_user=None)
 
     client = await _make_client(bot)
     try:
-        partial_body, partial_sig = _sign({
-            "order_id": str(payment.id), "payment_id": "np-topup-1", "payment_status": "partially_paid",
-            "actually_paid": "3.0",
+        partial_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-topup-1", "status": "expired",
+            "amount": "3.0",
         })
-        r1 = await client.post("/webhooks/crypto", data=partial_body, headers={"x-nowpayments-sig": partial_sig})
+        r1 = await client.post("/webhooks/crypto", data=partial_body, headers=headers)
         assert r1.status == 200
 
-        finished_body, finished_sig = _sign({
-            "order_id": str(payment.id), "payment_id": "np-topup-1", "payment_status": "finished",
-            "actually_paid": "5.0",
+        finished_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-topup-1", "status": "completed",
+            "amount": "5.0",
         })
-        r2 = await client.post("/webhooks/crypto", data=finished_body, headers={"x-nowpayments-sig": finished_sig})
+        r2 = await client.post("/webhooks/crypto", data=finished_body, headers=headers)
         assert r2.status == 200
     finally:
         await client.close()
@@ -402,8 +411,8 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/race", "np-race-1"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/race", "plisio-race-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -411,17 +420,17 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=981, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=981, purpose="purchase", plan=plan, vpn_user=None)
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-race-1", "payment_status": "finished",
-            "actually_paid": "5.0",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-race-1", "status": "completed",
+            "amount": "5.0",
         })
         responses = await asyncio.gather(
-            client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature}),
-            client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature}),
+            client.post("/webhooks/crypto", data=raw_body, headers=headers),
+            client.post("/webhooks/crypto", data=raw_body, headers=headers),
         )
         assert {r.status for r in responses} <= {200, 500}
     finally:
@@ -465,8 +474,8 @@ async def test_webhook_concurrent_failed_deliveries_send_exactly_one_message(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/failrace", "np-failrace-1"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/failrace", "plisio-failrace-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -474,15 +483,15 @@ async def test_webhook_concurrent_failed_deliveries_send_exactly_one_message(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=982, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=982, purpose="purchase", plan=plan, vpn_user=None)
 
     client = await _make_client(bot)
     try:
-        raw_body, signature = _sign({
-            "order_id": str(payment.id), "payment_id": "np-failrace-1", "payment_status": "expired",
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-failrace-1", "status": "expired",
         })
         responses = await asyncio.gather(*[
-            client.post("/webhooks/crypto", data=raw_body, headers={"x-nowpayments-sig": signature})
+            client.post("/webhooks/crypto", data=raw_body, headers=headers)
             for _ in range(5)
         ])
         assert all(r.status == 200 for r in responses)
@@ -491,3 +500,131 @@ async def test_webhook_concurrent_failed_deliveries_send_exactly_one_message(
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert len(sent) == 1, f"expected exactly 1 message under full serialization, got {len(sent)}"
+
+
+@pytest.mark.asyncio
+async def test_webhook_cancelled_duplicate_never_fails_a_payment(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plisio sets "cancelled duplicate" on the invoice a buyer abandoned
+    when they switched coins; the replacement invoice is the one that
+    completes. Failing the payment here would cancel an order the buyer
+    is still in the middle of paying."""
+    from app.db.models.payment import Payment
+    from app.db.models.payment_status_event import PaymentStatusEvent
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+    from sqlalchemy import select as sa_select
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/dup", "plisio-dup-1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=991, purpose="purchase", plan=plan, vpn_user=None)
+
+    client = await _make_client(bot)
+    try:
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-dup-1", "status": "cancelled duplicate",
+        })
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
+        assert response.status == 200
+    finally:
+        await client.close()
+
+    async with async_session_maker() as session:
+        refreshed = await session.get(Payment, payment.id)
+        assert refreshed.status == "pending", "a coin switch must not cancel the order"
+        events = (
+            await session.execute(sa_select(PaymentStatusEvent).where(PaymentStatusEvent.payment_id == payment.id))
+        ).scalars().all()
+        assert [e.raw_status for e in events] == ["cancelled duplicate"], "still audited"
+
+    assert [c for c in fake_session.calls if c[0] == "sendMessage"] == []
+
+
+@pytest.mark.asyncio
+async def test_webhook_expired_with_a_partial_amount_offers_a_topup(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plisio has no "partially paid" status: an expired invoice carrying a
+    received amount is this platform's partial payment."""
+    from app.db.models.payment import Payment
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/part", "plisio-part-1"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=992, purpose="purchase", plan=plan, vpn_user=None)
+
+    client = await _make_client(bot)
+    try:
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-part-1", "status": "expired", "amount": "2.5",
+        })
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
+        assert response.status == 200
+    finally:
+        await client.close()
+
+    async with async_session_maker() as session:
+        refreshed = await session.get(Payment, payment.id)
+        assert refreshed.status == "partially_paid"
+        assert refreshed.paid_amount == Decimal("2.5")
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    buttons = [b["text"] for row in sent[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert "💰 Finish Payment" in buttons
+
+
+@pytest.mark.asyncio
+async def test_webhook_switching_coins_updates_the_stored_txn_id(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """order_number stays ours across a coin switch but txn_id changes, so
+    the newest one must win for the Plisio dashboard to be searchable."""
+    from app.db.models.payment import Payment
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.service import create_crypto_payment
+
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/first", "plisio-first"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    async with async_session_maker() as session:
+        from app.services.catalog import get_plan
+
+        plan = await get_plan(session, plan_id)
+        payment = await create_crypto_payment(session, telegram_id=993, purpose="purchase", plan=plan, vpn_user=None)
+    assert payment.provider_payment_id == "plisio-first"
+
+    client = await _make_client(bot)
+    try:
+        raw_body, headers = _sign({
+            "order_number": str(payment.id), "txn_id": "plisio-second", "status": "pending",
+        })
+        response = await client.post("/webhooks/crypto", data=raw_body, headers=headers)
+        assert response.status == 200
+    finally:
+        await client.close()
+
+    async with async_session_maker() as session:
+        refreshed = await session.get(Payment, payment.id)
+        assert refreshed.provider_payment_id == "plisio-second"
+        assert refreshed.status == "pending", "a progress callback must not resolve the payment"

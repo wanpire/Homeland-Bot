@@ -25,20 +25,27 @@ logger = logging.getLogger(__name__)
 
 _provider = CryptoProvider()
 
+# Plisio invoice statuses that reach a conclusion. Everything else
+# ("new", "pending", "pending internal") is progress: recorded as a
+# PaymentStatusEvent, but it never changes Payment.status or notifies
+# anyone.
+#
+# "cancelled duplicate" is deliberately absent. Plisio sets it on the
+# invoice a buyer ABANDONED when they switched coins, while the
+# replacement invoice - same order_number, new txn_id - is the one that
+# completes. Treating it as a failure would cancel an order the buyer is
+# still in the middle of paying.
 _FINAL_STATUSES = {
-    "finished": "paid",
-    "partially_paid": "partially_paid",
-    "failed": "failed",
-    "expired": "failed",
-    "refunded": "refunded",
+    "completed": "paid",
+    "expired": "expired",  # resolved below into partially_paid or failed
+    "cancelled": "failed",
+    "error": "failed",
 }
-# waiting / confirming / confirmed / sending are progress states - logged
-# via PaymentStatusEvent but never change Payment.status or notify the user.
 
-# Only these are actually terminal. "partially_paid" is deliberately
-# excluded: on NOWPayments' side the same invoice/deposit address keeps
-# accepting funds after a partially_paid IPN, until a later "finished" IPN
-# for the SAME payment reports it fully paid - spec §9's top-up mechanic.
+# Only these actually close a payment. "partially_paid" stays open: the
+# buyer can still top up from the same invoice page, and a later
+# "completed" callback for the same order must still be able to activate
+# it - spec §9's top-up mechanic.
 _TERMINAL_STATUSES = {"paid", "failed", "refunded"}
 
 _MAX_POSTGRES_INT = 2**31 - 1
@@ -53,11 +60,12 @@ def create_webhook_app(bot: Bot) -> web.Application:
 
 async def _handle_crypto_ipn(request: web.Request) -> web.Response:
     raw_body = await request.read()
-    signature = request.headers.get("x-nowpayments-sig", "")
-
-    event = _provider.verify_webhook(raw_body, signature)
+    # Plisio puts its verify_hash INSIDE the body, so there is no
+    # signature header to read (NOWPayments used x-nowpayments-sig). The
+    # empty string keeps the PaymentProvider interface intact.
+    event = _provider.verify_webhook(raw_body, "")
     if event is None:
-        logger.warning("Crypto IPN signature/payload invalid")
+        logger.warning("Crypto callback signature/payload invalid")
         return web.Response(status=401, text="invalid signature")
 
     bot: Bot = request.app["bot"]
@@ -67,8 +75,8 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
     # .isdigit() only to crash session.get() with an unhandled
     # asyncpg.DataError - the same class of bug the Renew Service
     # feature's final review found and fixed for callback_data ids.
-    # order_id is just as attacker-reachable here: NOWPayments echoes
-    # back whatever order_id was sent, but nothing stops a malicious
+    # order_number is just as attacker-reachable here: Plisio echoes
+    # back whatever order_number was sent, but nothing stops a malicious
     # actor from POSTing directly to this public endpoint with a
     # crafted body.
     order_id_value: int | None = None
@@ -87,6 +95,14 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
         session.add(PaymentStatusEvent(
             payment_id=payment.id, raw_status=event.raw_status, paid_amount=event.paid_amount,
         ))
+        # A buyer who switches coins gets a NEW Plisio invoice while
+        # order_number stays ours, so the newest txn_id is the one that
+        # matches the Plisio dashboard. Recorded here, beside the audit
+        # row, because a switch usually shows up on a PROGRESS callback -
+        # doing it after the early return below would miss exactly the
+        # case it exists for.
+        if event.provider_payment_id and payment.provider_payment_id != event.provider_payment_id:
+            payment.provider_payment_id = event.provider_payment_id
         await session.commit()
 
         if event.raw_status not in _FINAL_STATUSES:
@@ -108,11 +124,10 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
         #
         # Only a truly TERMINAL status blocks further processing - "paid",
         # "failed", "refunded". "pending" and "partially_paid" both stay
-        # open: partially_paid is NOT terminal on NOWPayments' side (the
-        # same invoice keeps accepting funds to the same address until
-        # fully paid), so a later "finished" IPN for a partially_paid
-        # payment must still be able to activate it - this is exactly
-        # spec §9's documented top-up mechanic, which the previous
+        # open: the same Plisio invoice keeps accepting funds until it is
+        # paid in full, so a later "completed" callback for a
+        # partially_paid payment must still be able to activate it -
+        # exactly spec §9's documented top-up mechanic, which an earlier
         # ("!= pending") gate silently broke.
         payment = (
             await session.execute(
@@ -126,6 +141,14 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             return web.Response(status=200, text="ignored")
 
         new_status = _FINAL_STATUSES[event.raw_status]
+
+        if new_status == "expired":
+            # Plisio has no "partially paid" status. Of an expired invoice
+            # its docs say: "look for the amount field to verify payment.
+            # The full amount may not have been paid." So a non-zero
+            # received amount is this platform's partial payment, and the
+            # existing top-up flow applies unchanged.
+            new_status = "partially_paid" if (event.paid_amount or 0) > 0 else "failed"
 
         if new_status == "paid":
             async with IBSngClient() as client:
@@ -149,7 +172,7 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
                     return web.Response(status=200, text="ok")
                 except IBSngError as exc:
                     logger.error("Payment %s: IBSng error during activation: %s", payment.id, exc)
-                    return web.Response(status=500, text="ibsng error")  # lets NOWPayments retry the IPN
+                    return web.Response(status=500, text="ibsng error")  # lets Plisio retry the callback
 
             payment.status = "paid"
             payment.resolved_at = dt.datetime.now(dt.timezone.utc)
@@ -165,13 +188,12 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             payment.status = "partially_paid"
             payment.paid_amount = event.paid_amount
             await session.commit()
-            # Deliberately no dollar shortfall figure here: actually_paid
-            # (event.paid_amount) is in the invoice's pay_currency (e.g.
-            # USDT units), not USD, and computing a USD shortfall
-            # accurately needs the invoice's pay_currency/pay_amount
-            # conversion ratio, which this design doesn't track. The
-            # linked payment page itself shows the exact remaining
-            # balance in the correct currency.
+            # Deliberately no dollar shortfall figure here: the received
+            # amount (event.paid_amount) is in whichever coin the buyer
+            # chose, not USD, and computing a USD shortfall accurately
+            # needs that invoice's conversion rate, which this design
+            # doesn't track. Plisio's own invoice page shows the exact
+            # remaining balance in the right currency.
             lang = (await get_language(session, payment.telegram_id)) or "en"
             await bot.send_message(
                 payment.telegram_id,
@@ -195,8 +217,8 @@ async def _notify_activation_technical_issue(bot: Bot, payment: Payment, lang: s
     """Notify the user that their payment was received but activation hit
     a permanent technical issue. Tolerates the user having blocked the
     bot - that failure must never prevent the handler's 200 response,
-    since NOWPayments would otherwise retry forever for a situation
-    retrying can never fix."""
+    since Plisio would otherwise retry forever for a situation retrying
+    can never fix."""
     try:
         await bot.send_message(payment.telegram_id, t("activation_technical_issue", lang))
     except TelegramForbiddenError:

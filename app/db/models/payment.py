@@ -21,11 +21,11 @@ class Payment(Base):
     snapshot rationale (see that model's docstring).
 
     status is Homeland's own coarse view (pending/paid/partially_paid/
-    failed/refunded), separate from the raw NOWPayments payment_status
-    strings recorded per-IPN in PaymentStatusEvent - never conflate the
-    two: NOWPayments has finer states (waiting/confirming/sending) that
-    don't need their own Payment.status value, since nothing user-facing
-    or provisioning-related happens until "finished"."""
+    failed/refunded), separate from the raw Plisio invoice statuses
+    recorded per-callback in PaymentStatusEvent - never conflate the two:
+    Plisio has finer states (new/pending/pending internal) that don't
+    need their own Payment.status value, since nothing user-facing or
+    provisioning-related happens until "completed"."""
 
     __tablename__ = "payments"
 
@@ -49,14 +49,14 @@ class Payment(Base):
 
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     original_amount_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    # NOWPayments' IPN "actually_paid" field, in the invoice's pay_currency
+    # Plisio's callback "amount" field, in the coin the buyer chose
     # (e.g. USDT) - NOT necessarily USD, despite amount_usd/original_amount_usd
     # above being USD. Never presented to a user as a dollar figure (see
     # app/webhook.py's partially_paid handling) - stored for audit/support
-    # cross-reference against the NOWPayments dashboard only.
+    # cross-reference against the Plisio dashboard only.
     paid_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
 
-    provider: Mapped[str] = mapped_column(String(16), default="nowpayments")
+    provider: Mapped[str] = mapped_column(String(16), default="plisio")
     provider_payment_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     invoice_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
