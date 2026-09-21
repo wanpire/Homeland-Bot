@@ -176,7 +176,8 @@ A coin is payable when `amount_usd >= min_usd` (fresh or stale).
 `pay_currency`.
 
 `app/services/payments/nowpayments.py`:
-- `get_min_amount(*, currency_from)` — drops `currency_to` (§2).
+- `get_min_amount(*, currency_from)` — always sends `currency_to`, set
+  to `Settings.nowpayments_settlement_currency` (§2).
 - `create_invoice(..., pay_currency: str | None = None)` adds
   `"pay_currency"` to the payload when given. The internal
   `check_minimum_amount` call and the function itself are **removed**
