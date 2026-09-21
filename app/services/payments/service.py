@@ -10,11 +10,28 @@ from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
 from app.services.discounts import discount_price, find_best_auto_discount, increment_discount_usage
 from app.services.ibsng.client import IBSngClient
-from app.services.payments.base import PaymentProvider
+from app.services.payments.base import PayabilityReport, PaymentProvider
 from app.services.payments.crypto_provider import CryptoProvider
 from app.services.vpn_users import create_vpn_user, generate_vpn_credentials, renew_and_change_group
 
 _provider: PaymentProvider = CryptoProvider()
+
+
+async def quote_amount(session: AsyncSession, plan: Plan) -> tuple[Decimal, DiscountCode | None]:
+    """The exact USD amount a buyer would pay for this plan right now,
+    auto-discounts included. The coin chooser and the invoice must both
+    price from this one function: a mismatch would offer coins for one
+    amount and then invoice a different one, reviving the very dead end
+    the payability check exists to prevent."""
+    discount: DiscountCode | None = await find_best_auto_discount(session, plan.id)
+    amount = discount_price(plan.price_usd, discount.percent) if discount is not None else plan.price_usd
+    return amount, discount
+
+
+async def check_payability(amount_usd: Decimal) -> PayabilityReport:
+    """Which accepted coins can pay this amount right now. Handlers call
+    this rather than touching the provider, matching create_crypto_payment."""
+    return await _provider.payable_currencies(amount_usd)
 
 
 async def create_crypto_payment(
@@ -24,9 +41,9 @@ async def create_crypto_payment(
     purpose: str,  # "purchase" | "renew"
     plan: Plan,
     vpn_user: VPNUser | None,  # required for purpose="renew", None for "purchase"
+    pay_currency: str,
 ) -> Payment:
-    discount: DiscountCode | None = await find_best_auto_discount(session, plan.id)
-    amount = discount_price(plan.price_usd, discount.percent) if discount is not None else plan.price_usd
+    amount, discount = await quote_amount(session, plan)
 
     payment = Payment(
         telegram_id=telegram_id,
@@ -54,7 +71,7 @@ async def create_crypto_payment(
     await session.refresh(payment)
 
     invoice_url, provider_payment_id = await _provider.create_invoice(
-        order_id=str(payment.id), amount_usd=amount, description=f"Homeland: {plan.name}"
+        order_id=str(payment.id), amount_usd=amount, description=f"Homeland: {plan.name}", pay_currency=pay_currency
     )
     payment.invoice_url = invoice_url
     payment.provider_payment_id = provider_payment_id

@@ -227,9 +227,9 @@ async def test_get_min_amount_raises_when_unconfigured(monkeypatch: pytest.Monke
 @pytest.mark.asyncio
 async def test_get_min_amount_raises_nowpayments_error_on_non_numeric_fiat_equivalent(monkeypatch: pytest.MonkeyPatch) -> None:
     """A malformed fiat_equivalent must surface as NowPaymentsError (which
-    check_minimum_amount's _min_or_none already knows to swallow and fail
-    open on) - not a raw decimal.InvalidOperation that would propagate
-    uncaught and turn a fail-open scenario into a crash."""
+    minimums._fetch_one already knows to catch and record as that coin's
+    last error) - not a raw decimal.InvalidOperation that would propagate
+    uncaught and crash the whole lookup for every other coin too."""
     from app.services.payments import nowpayments
 
     async def _fake_get(self: httpx.AsyncClient, url: str, *, params: dict[str, str], headers: dict[str, str]) -> _FakeResponse:

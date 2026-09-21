@@ -34,16 +34,21 @@ async def test_crypto_provider_create_invoice_delegates_to_client(monkeypatch: p
     from app.services.payments import nowpayments
     from app.services.payments.crypto_provider import CryptoProvider
 
-    async def _fake_create_invoice(*, order_id: str, amount: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(
+        *, order_id: str, amount: Decimal, description: str, pay_currency: str | None = None
+    ) -> tuple[str, str]:
         assert order_id == "7"
         assert amount == Decimal("9.00")
         assert description == "Homeland: 2 Months"
+        assert pay_currency == "ltc"
         return "https://nowpayments.io/payment/xyz", "np-777"
 
     monkeypatch.setattr(nowpayments, "create_invoice", _fake_create_invoice)
 
     provider = CryptoProvider()
-    url, payment_id = await provider.create_invoice(order_id="7", amount_usd=Decimal("9.00"), description="Homeland: 2 Months")
+    url, payment_id = await provider.create_invoice(
+        order_id="7", amount_usd=Decimal("9.00"), description="Homeland: 2 Months", pay_currency="ltc"
+    )
     assert url == "https://nowpayments.io/payment/xyz"
     assert payment_id == "np-777"
 
@@ -120,7 +125,7 @@ async def test_create_crypto_payment_purchase_creates_pending_row_with_invoice(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/abc", "np-999"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -131,7 +136,7 @@ async def test_create_crypto_payment_purchase_creates_pending_row_with_invoice(
 
         plan = await get_plan(session, plan_id)
         payment = await create_crypto_payment(
-            session, telegram_id=950, purpose="purchase", plan=plan, vpn_user=None,
+            session, telegram_id=950, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20",
         )
 
     assert payment.id is not None
@@ -158,7 +163,7 @@ async def test_create_crypto_payment_renew_targets_existing_service(
     from app.services.payments.service import create_crypto_payment
     from app.services.vpn_users import create_vpn_user, generate_vpn_credentials
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/renew", "np-1000"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -177,7 +182,7 @@ async def test_create_crypto_payment_renew_targets_existing_service(
 
         new_plan = await get_plan(session, stream_plan_id)
         payment = await create_crypto_payment(
-            session, telegram_id=951, purpose="renew", plan=new_plan, vpn_user=existing,
+            session, telegram_id=951, purpose="renew", plan=new_plan, vpn_user=existing, pay_currency="usdttrc20",
         )
 
     assert payment.purpose == "renew"
@@ -195,7 +200,7 @@ async def test_create_crypto_payment_applies_auto_discount(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/disc", "np-1001"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -211,7 +216,7 @@ async def test_create_crypto_payment_applies_auto_discount(
 
         plan = await get_plan(session, plan_id)
         payment = await create_crypto_payment(
-            session, telegram_id=952, purpose="purchase", plan=plan, vpn_user=None,
+            session, telegram_id=952, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20",
         )
 
     assert payment.amount_usd == Decimal("4.50")
@@ -228,7 +233,7 @@ async def test_activate_finished_payment_purchase_creates_vpn_user(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import activate_finished_payment, create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/act", "np-2000"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -238,7 +243,7 @@ async def test_activate_finished_payment_purchase_creates_vpn_user(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=960, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=960, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     async with make_session() as session, IBSngClient() as client:
         from sqlalchemy import select
@@ -267,7 +272,7 @@ async def test_activate_finished_payment_renew_updates_existing_service(
     from app.services.payments.service import activate_finished_payment, create_crypto_payment
     from app.services.vpn_users import create_vpn_user, generate_vpn_credentials
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/renew2", "np-2001"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -285,7 +290,7 @@ async def test_activate_finished_payment_renew_updates_existing_service(
         from app.services.catalog import get_plan
 
         new_plan = await get_plan(session, stream_id)
-        payment = await create_crypto_payment(session, telegram_id=961, purpose="renew", plan=new_plan, vpn_user=existing)
+        payment = await create_crypto_payment(session, telegram_id=961, purpose="renew", plan=new_plan, vpn_user=existing, pay_currency="usdttrc20")
 
     async with make_session() as session, IBSngClient() as client:
         from app.db.models.payment import Payment
@@ -313,7 +318,7 @@ async def test_activate_finished_payment_increments_discount_usage(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import activate_finished_payment, create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/disc2", "np-2002"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -328,7 +333,7 @@ async def test_activate_finished_payment_increments_discount_usage(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=962, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=962, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     async with make_session() as session, IBSngClient() as client:
         from app.db.models.payment import Payment
