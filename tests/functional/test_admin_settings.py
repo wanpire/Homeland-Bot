@@ -388,3 +388,62 @@ async def test_trial_limit_toggle_flips_state(dispatcher: Any, bot: Any, fake_se
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "🔴 Turn Off" in buttons
+
+
+@pytest.mark.asyncio
+async def test_crypto_minimums_screen_lists_state_per_coin(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from decimal import Decimal
+
+    from app.bot.handlers import admin_settings
+    from app.services.payments.currencies import PayCurrency
+    from app.services.payments.minimums import FRESH, UNKNOWN, CurrencyMinimum
+
+    async def _fake_get_minimums(*, force_refresh: bool = False) -> list[CurrencyMinimum]:
+        return [
+            CurrencyMinimum(PayCurrency("usdttrc20", "USDT (TRC-20)"), Decimal("12.08"), 0.0, FRESH, None),
+            CurrencyMinimum(PayCurrency("ltc", "LTC (Litecoin)"), None, None, UNKNOWN, "502 upstream"),
+        ]
+
+    monkeypatch.setattr(admin_settings, "get_minimums", _fake_get_minimums)
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:minimums"))
+
+    text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
+    assert "USDT (TRC-20)" in text and "$12.08" in text and "fresh" in text
+    assert "LTC (Litecoin)" in text and "unknown" in text and "502 upstream" in text
+
+
+@pytest.mark.asyncio
+async def test_crypto_minimums_refresh_forces_a_live_lookup(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.bot.handlers import admin_settings
+    from app.services.payments.minimums import CurrencyMinimum
+
+    forced: list[bool] = []
+
+    async def _fake_get_minimums(*, force_refresh: bool = False) -> list[CurrencyMinimum]:
+        forced.append(force_refresh)
+        return []
+
+    monkeypatch.setattr(admin_settings, "get_minimums", _fake_get_minimums)
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:minimums:refresh"))
+
+    assert forced == [True]
+
+
+@pytest.mark.asyncio
+async def test_non_full_admin_cannot_open_crypto_minimums(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.db.models.admin_user import AdminUser
+
+    async with async_session_maker() as session:
+        session.add(AdminUser(telegram_id=744, level="sales"))
+        await session.commit()
+
+    await dispatcher.feed_update(bot, make_callback_update(744, "adm:settings:minimums"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert not any("crypto minimums" in c[1].get("text", "").lower() for c in edited)

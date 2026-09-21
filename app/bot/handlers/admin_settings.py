@@ -13,7 +13,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters.admin import IsFullAdmin
-from app.bot.keyboards.admin_settings import back_to_settings_keyboard, settings_edit_cancel_keyboard
+from app.bot.keyboards.admin_settings import (
+    back_to_settings_keyboard,
+    crypto_minimums_keyboard,
+    settings_edit_cancel_keyboard,
+)
 from app.bot.keyboards.crypto_settlement import (
     NETWORK_LABELS,
     crypto_network_choice_keyboard,
@@ -37,6 +41,7 @@ from app.db.session import async_session_maker
 from app.services.app_config import get_config, set_config
 from app.services.catalog import format_price_usd, get_plan, list_plans, update_plan
 from app.services.groups import sync_groups
+from app.services.payments.minimums import STALE, CurrencyMinimum, get_minimums
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
 from app.services.payments import nowpayments
@@ -556,3 +561,49 @@ async def crypto_settlement_receive_address(message: Message, state: FSMContext)
         text = await _crypto_settlement_status_text(session)
     await state.clear()
     await message.answer(f"✅ Settlement address saved.\n\n{text}", reply_markup=crypto_settlement_status_keyboard())
+
+
+def _minimum_line(minimum: CurrencyMinimum) -> str:
+    """One coin's status. English-only, like every adm:* screen."""
+    if minimum.min_usd is None:
+        detail = f"unknown — last error: {html.escape(minimum.last_error)}" if minimum.last_error else "unknown"
+        return f"• <b>{html.escape(minimum.currency.label)}</b>: {detail}"
+
+    age = minimum.age_seconds or 0.0
+    age_text = f"{age / 60:.0f} min ago" if age < 3600 else f"{age / 3600:.1f} h ago"
+    line = f"• <b>{html.escape(minimum.currency.label)}</b>: ${minimum.min_usd} — {minimum.state}, {age_text}"
+    if minimum.state == STALE and minimum.last_error:
+        line += f"\n    last error: {html.escape(minimum.last_error)}"
+    return line
+
+
+async def _minimums_text(*, force_refresh: bool) -> str:
+    rows = await get_minimums(force_refresh=force_refresh)
+    body = "\n".join(_minimum_line(row) for row in rows) or "No pay currencies configured."
+    return (
+        "💱 <b>Crypto Minimums</b>\n\n"
+        "Live NOWPayments minimum per accepted coin, cached for 10 minutes.\n"
+        "A plan priced below a coin's minimum is hidden from buyers choosing that coin.\n\n" + body
+    )
+
+
+@router.callback_query(F.data == "adm:settings:minimums")
+async def settings_minimums_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    # No inline permission check: this whole router is already gated by
+    # IsFullAdmin (see router.callback_query.filter above).
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.edit_text(
+            await _minimums_text(force_refresh=False), reply_markup=crypto_minimums_keyboard()
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:settings:minimums:refresh")
+async def settings_minimums_refresh_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.edit_text(
+            await _minimums_text(force_refresh=True), reply_markup=crypto_minimums_keyboard()
+        )
+    await callback.answer("Refreshed from NOWPayments.")
