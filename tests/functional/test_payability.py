@@ -100,3 +100,18 @@ async def test_unknown_lookups_make_it_unavailable_not_unpayable(monkeypatch: py
     assert report.payable == []
     assert [c.code for c in report.unknown] == ["ltc"]
     assert report.status == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_gateway_raises_rather_than_reporting_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A blank API key must surface as "crypto is coming soon", not as
+    "we couldn't reach the provider" - the per-coin lookups would
+    otherwise record the missing key as an unknown minimum."""
+    from app.config import get_settings
+    from app.services.payments.crypto_provider import CryptoProvider
+    from app.services.payments.nowpayments import PaymentProviderNotConfiguredError
+
+    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
+
+    with pytest.raises(PaymentProviderNotConfiguredError):
+        await CryptoProvider().payable_currencies(Decimal("20.00"))

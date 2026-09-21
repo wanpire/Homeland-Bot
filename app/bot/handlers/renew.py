@@ -23,7 +23,10 @@ from app.i18n.texts import t
 from app.services.catalog import CATEGORIES, categories_with_active_plans, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
 from app.services.discounts import discount_price, find_best_auto_discount
 from app.services.payments.nowpayments import NowPaymentsError, PaymentBelowMinimumError, PaymentProviderNotConfiguredError
-from app.services.payments.service import create_crypto_payment
+from app.bot.handlers._payability import render_payability
+from app.services.payments.currencies import find_currency
+from app.services.payments.minimums import invalidate
+from app.services.payments.service import check_payability, create_crypto_payment, quote_amount
 from app.services.vpn_users import get_owned_vpn_user, list_renewable_services
 
 logger = logging.getLogger(__name__)
@@ -230,8 +233,10 @@ async def renew_plan_cb(callback: CallbackQuery, lang: str) -> None:
 
 @router.callback_query(F.data.startswith("renew:confirm:"))
 async def renew_confirm_cb(callback: CallbackQuery, lang: str) -> None:
+    """Mirrors buy_confirm_cb: offers the coins that can pay this exact
+    amount right now instead of creating a coin-agnostic invoice the
+    buyer could dead-end on. No invoice is created here."""
     parts = callback.data.split(":")
-    telegram_id = callback.from_user.id
 
     vpn_user_id = _parse_id(parts[2]) if len(parts) > 2 else None
     if vpn_user_id is None:
@@ -242,6 +247,64 @@ async def renew_confirm_cb(callback: CallbackQuery, lang: str) -> None:
     if plan_id is None:
         await _not_found(callback, lang)
         return
+
+    telegram_id = callback.from_user.id
+    async with async_session_maker() as session:
+        vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
+        if vpn_user is None:
+            await _not_found(callback, lang)
+            return
+
+        plan = await get_plan(session, plan_id) if _in_postgres_int_range(plan_id) else None
+        if not _is_renewable(plan):
+            if callback.message is not None:
+                await callback.message.edit_text(t("plan_gone", lang), reply_markup=back_to_menu_keyboard(lang))
+            await callback.answer()
+            return
+        amount, _ = await quote_amount(session, plan)
+        category = plan.category
+
+    try:
+        report = await check_payability(amount)
+    except PaymentProviderNotConfiguredError:
+        if callback.message is not None:
+            await callback.message.edit_text(
+                t("payment_coming_soon_renew", lang), reply_markup=back_to_menu_keyboard(lang)
+            )
+        await callback.answer()
+        return
+
+    await render_payability(
+        callback,
+        report,
+        amount,
+        lang,
+        pay_prefix=f"renew:pay:{vpn_user_id}:{plan_id}",
+        back_to_summary_cb=f"renew:plan:{vpn_user_id}:{plan_id}",
+        back_to_plans_cb=f"renew:category:{vpn_user_id}:{category}",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("renew:pay:"))
+async def renew_pay_cb(callback: CallbackQuery, lang: str) -> None:
+    parts = callback.data.split(":")
+    if len(parts) < 5:
+        await _not_found(callback, lang)
+        return
+
+    vpn_user_id = _parse_id(parts[2])
+    if vpn_user_id is None:
+        await _not_found(callback, lang)
+        return
+
+    plan_id = _parse_int(parts[3])
+    if plan_id is None:
+        await _not_found(callback, lang)
+        return
+
+    code = parts[4]
+    telegram_id = callback.from_user.id
 
     async with async_session_maker() as session:
         vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
@@ -255,27 +318,86 @@ async def renew_confirm_cb(callback: CallbackQuery, lang: str) -> None:
                 await callback.message.edit_text(t("plan_gone", lang), reply_markup=back_to_menu_keyboard(lang))
             await callback.answer()
             return
+        amount, _ = await quote_amount(session, plan)
+        category = plan.category
+
+        try:
+            report = await check_payability(amount)
+        except PaymentProviderNotConfiguredError:
+            if callback.message is not None:
+                await callback.message.edit_text(
+                    t("payment_coming_soon_renew", lang), reply_markup=back_to_menu_keyboard(lang)
+                )
+            await callback.answer()
+            return
+
+        # A stale keyboard, a coin dropped from Settings, or a minimum
+        # that moved since the chooser rendered: re-offer whatever is
+        # payable now rather than invoicing something that can't be paid.
+        currency = find_currency(code)
+        if currency is None or currency.code not in {c.code for c in report.payable}:
+            await render_payability(
+                callback,
+                report,
+                amount,
+                lang,
+                pay_prefix=f"renew:pay:{vpn_user_id}:{plan_id}",
+                back_to_summary_cb=f"renew:plan:{vpn_user_id}:{plan_id}",
+                back_to_plans_cb=f"renew:category:{vpn_user_id}:{category}",
+                notice=t("payment_currency_changed", lang),
+            )
+            await callback.answer()
+            return
 
         try:
             payment = await create_crypto_payment(
-                session, telegram_id=telegram_id, purpose="renew", plan=plan, vpn_user=vpn_user,
+                session,
+                telegram_id=telegram_id,
+                purpose="renew",
+                plan=plan,
+                vpn_user=vpn_user,
+                pay_currency=currency.code,
             )
-        except PaymentProviderNotConfiguredError:
-            if callback.message is not None:
-                await callback.message.edit_text(t("payment_coming_soon_renew", lang), reply_markup=back_to_menu_keyboard(lang))
+        except PaymentBelowMinimumError:
+            logger.warning(
+                "NOWPayments rejected %s as below minimum for vpn_user %s plan %s",
+                currency.code,
+                vpn_user_id,
+                plan_id,
+            )
+            await invalidate(currency.code)
+            refreshed = await check_payability(amount)
+            await render_payability(
+                callback,
+                refreshed,
+                amount,
+                lang,
+                pay_prefix=f"renew:pay:{vpn_user_id}:{plan_id}",
+                back_to_summary_cb=f"renew:plan:{vpn_user_id}:{plan_id}",
+                back_to_plans_cb=f"renew:category:{vpn_user_id}:{category}",
+                notice=t("payment_currency_changed", lang),
+            )
             await callback.answer()
             return
-        except PaymentBelowMinimumError:
+        except PaymentProviderNotConfiguredError:
             if callback.message is not None:
-                await callback.message.edit_text(t("payment_below_minimum", lang), reply_markup=back_to_menu_keyboard(lang))
+                await callback.message.edit_text(
+                    t("payment_coming_soon_renew", lang), reply_markup=back_to_menu_keyboard(lang)
+                )
             await callback.answer()
             return
         except NowPaymentsError:
             logger.error(
-                "NOWPayments invoice creation failed for vpn_user %s plan %s", vpn_user_id, plan_id, exc_info=True,
+                "NOWPayments invoice creation failed for vpn_user %s plan %s in %s",
+                vpn_user_id,
+                plan_id,
+                currency.code,
+                exc_info=True,
             )
             if callback.message is not None:
-                await callback.message.edit_text(t("payment_unavailable", lang), reply_markup=back_to_menu_keyboard(lang))
+                await callback.message.edit_text(
+                    t("payment_unavailable", lang), reply_markup=back_to_menu_keyboard(lang)
+                )
             await callback.answer()
             return
 
@@ -283,5 +405,7 @@ async def renew_confirm_cb(callback: CallbackQuery, lang: str) -> None:
     # renewal is executed until the webhook (app/webhook.py) reports the
     # payment as "finished".
     if callback.message is not None:
-        await callback.message.edit_text(t("payment_link_heading", lang), reply_markup=payment_link_keyboard(payment.invoice_url, lang))
+        await callback.message.edit_text(
+            t("payment_link_heading", lang), reply_markup=payment_link_keyboard(payment.invoice_url, lang)
+        )
     await callback.answer()

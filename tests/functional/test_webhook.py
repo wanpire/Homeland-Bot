@@ -76,7 +76,7 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/wh1", "np-wh-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -86,7 +86,7 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=970, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=970, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     client = await _make_client(bot)
     try:
@@ -124,7 +124,7 @@ async def test_payment_confirmed_message_in_persian(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/wh-fa1", "np-wh-fa1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -134,7 +134,7 @@ async def test_payment_confirmed_message_in_persian(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=990, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=990, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     async with async_session_maker() as session:
         await record_seen(session, 990, None)
@@ -163,7 +163,7 @@ async def test_webhook_duplicate_finished_delivery_is_idempotent(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/wh2", "np-wh-2"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -173,7 +173,7 @@ async def test_webhook_duplicate_finished_delivery_is_idempotent(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=971, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=971, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     client = await _make_client(bot)
     try:
@@ -206,7 +206,7 @@ async def test_webhook_partially_paid_does_not_activate_and_shows_no_dollar_figu
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/wh3", "np-wh-3"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -216,7 +216,7 @@ async def test_webhook_partially_paid_does_not_activate_and_shows_no_dollar_figu
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=972, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=972, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     client = await _make_client(bot)
     try:
@@ -257,7 +257,7 @@ async def test_webhook_failed_marks_payment_failed(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/wh4", "np-wh-4"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -267,7 +267,7 @@ async def test_webhook_failed_marks_payment_failed(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=973, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=973, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     client = await _make_client(bot)
     try:
@@ -299,7 +299,7 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
     from app.services.payments.service import create_crypto_payment
     from app.services.vpn_users import VPNUsernameTakenError
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str):
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None):
         return "https://nowpayments.io/payment/wh5", "np-wh-5"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -308,7 +308,7 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=974, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=974, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     async def _boom(*args, **kwargs):
         raise VPNUsernameTakenError("collision")
@@ -346,7 +346,7 @@ async def test_webhook_finished_after_partially_paid_still_activates(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/topup", "np-topup-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -355,7 +355,7 @@ async def test_webhook_finished_after_partially_paid_still_activates(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=980, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=980, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     client = await _make_client(bot)
     try:
@@ -402,7 +402,7 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/race", "np-race-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -411,7 +411,7 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=981, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=981, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     client = await _make_client(bot)
     try:
@@ -465,7 +465,7 @@ async def test_webhook_concurrent_failed_deliveries_send_exactly_one_message(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None) -> tuple[str, str]:
         return "https://nowpayments.io/payment/failrace", "np-failrace-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
@@ -474,7 +474,7 @@ async def test_webhook_concurrent_failed_deliveries_send_exactly_one_message(
     async with async_session_maker() as session:
         from app.services.catalog import get_plan
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=982, purpose="purchase", plan=plan, vpn_user=None)
+        payment = await create_crypto_payment(session, telegram_id=982, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
 
     client = await _make_client(bot)
     try:

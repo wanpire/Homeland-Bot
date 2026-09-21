@@ -297,7 +297,7 @@ async def test_price_change_does_not_affect_existing_payment_amount(
     from app.services.payments.service import create_crypto_payment
 
     async def _fake_create_invoice(
-        self: CryptoProvider, *, order_id: str, amount_usd: _Decimal, description: str
+        self: CryptoProvider, *, order_id: str, amount_usd: _Decimal, description: str, pay_currency: str | None = None
     ) -> tuple[str, str]:
         return "https://nowpayments.io/payment/snapshot-test", "np-snapshot-1"
 
@@ -308,6 +308,7 @@ async def test_price_change_does_not_affect_existing_payment_amount(
         assert plan is not None
         payment = await create_crypto_payment(
             session, telegram_id=FAKE_ADMIN_ID, purpose="purchase", plan=plan, vpn_user=None,
+            pay_currency="usdttrc20",
         )
         original_amount = payment.amount_usd
         payment_id = payment.id

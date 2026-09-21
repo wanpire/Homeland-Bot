@@ -292,7 +292,7 @@ async def test_buy_confirm_rejects_trial_plan_id(
 
 
 @pytest.mark.asyncio
-async def test_buy_confirm_creates_payment_and_shows_link(
+async def test_buy_pay_creates_payment_and_shows_link(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from decimal import Decimal
@@ -300,13 +300,19 @@ async def test_buy_confirm_creates_payment_and_shows_link(
     from app.services.payments.crypto_provider import CryptoProvider
 
     plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    _patch_report(monkeypatch, payable=["trx"], too_low=[], unknown=[])
+    captured: dict[str, Any] = {}
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+    async def _fake_create_invoice(
+        self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None
+    ) -> tuple[str, str]:
+        captured["pay_currency"] = pay_currency
         return "https://nowpayments.io/payment/buytest", "np-buy-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
-    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:pay:{plan_id}:trx"))
 
+    assert captured["pay_currency"] == "trx"
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "complete your payment" in edited[0][1]["text"].lower()
@@ -352,11 +358,12 @@ async def test_buy_confirm_shows_unavailable_message_on_api_error(
 
     plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
 
-    async def _boom(*, order_id: str, amount, description: str):
+    async def _boom(*, order_id: str, amount, description: str, pay_currency: str | None = None):
         raise nowpayments.NowPaymentsError("simulated failure")
 
+    _patch_report(monkeypatch, payable=["trx"], too_low=[], unknown=[])
     monkeypatch.setattr(nowpayments, "create_invoice", _boom)
-    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:pay:{plan_id}:trx"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
@@ -367,22 +374,20 @@ async def test_buy_confirm_shows_unavailable_message_on_api_error(
 async def test_buy_confirm_shows_below_minimum_message(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Trip/Scroll's lower tiers are currently below every accepted coin's
-    real minimum - this is the exact production scenario check_minimum_amount
-    exists for."""
-    from app.services.payments import nowpayments
-
+    """The exact production scenario: a plan priced under every accepted
+    coin's current network minimum. The buyer gets a message naming the
+    cheapest minimum plus a route to a bigger plan, never a dead end."""
     plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    _patch_report(monkeypatch, payable=[], too_low=[("usdttrc20", "12.00"), ("trx", "10.50")], unknown=[])
 
-    async def _too_small(*, order_id: str, amount, description: str):
-        raise nowpayments.PaymentBelowMinimumError("simulated below-minimum")
-
-    monkeypatch.setattr(nowpayments, "create_invoice", _too_small)
     await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "too low" in edited[0][1]["text"].lower()
+    assert "$10.50" in edited[0][1]["text"]
+    buttons = [b["text"].lower() for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any("back to plans" in b for b in buttons)
 
 
 @pytest.mark.asyncio
@@ -448,3 +453,131 @@ async def test_buy_price_summary_in_persian(dispatcher: Any, bot: Any, fake_sess
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert "مدت:" in edited[0][1]["text"]
     assert "قیمت:" in edited[0][1]["text"]
+
+
+def _patch_report(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    payable: list[str],
+    too_low: list[tuple[str, str]],
+    unknown: list[str],
+) -> None:
+    """Replaces the live NOWPayments payability lookup with a fixed
+    verdict, so each test states exactly which coins can pay."""
+    from decimal import Decimal
+
+    from app.bot.handlers import buy as buy_handler
+    from app.services.payments.base import PayabilityReport
+    from app.services.payments.currencies import PayCurrency
+
+    async def _fake(amount_usd: Decimal) -> PayabilityReport:
+        return PayabilityReport(
+            payable=[PayCurrency(code=c, label=c.upper()) for c in payable],
+            too_low=[(PayCurrency(code=c, label=c.upper()), Decimal(m)) for c, m in too_low],
+            unknown=[PayCurrency(code=c, label=c.upper()) for c in unknown],
+        )
+
+    monkeypatch.setattr(buy_handler, "check_payability", _fake)
+
+
+@pytest.mark.asyncio
+async def test_buy_confirm_lists_only_payable_coins(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    _patch_report(monkeypatch, payable=["trx"], too_low=[("usdttrc20", "12.00")], unknown=[])
+
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    buttons = {b["text"]: b.get("callback_data") for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row}
+    assert buttons["TRX"] == f"buy:pay:{plan_id}:trx"
+    assert "USDTTRC20" not in buttons
+    assert any("back" in text.lower() for text in buttons)
+
+
+@pytest.mark.asyncio
+async def test_buy_confirm_creates_no_payment_row(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The chooser must not reserve an invoice - a buyer who backs out
+    here should leave no pending Payment behind."""
+    from sqlalchemy import select
+
+    from app.db.models.payment import Payment
+    from app.db.session import async_session_maker
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    _patch_report(monkeypatch, payable=["trx"], too_low=[], unknown=[])
+
+    await dispatcher.feed_update(bot, make_callback_update(977, f"buy:confirm:{plan_id}"))
+
+    async with async_session_maker() as session:
+        rows = (await session.execute(select(Payment).where(Payment.telegram_id == 977))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_buy_confirm_unavailable_when_lookups_failed(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A NOWPayments outage must not masquerade as "your plan is too cheap"."""
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    _patch_report(monkeypatch, payable=[], too_low=[], unknown=["usdttrc20", "trx"])
+
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
+
+    text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
+    assert "couldn't reach the payment provider" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_buy_pay_rejects_a_coin_that_is_no_longer_payable(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale keyboard from before the minimum moved must not create an
+    invoice the buyer cannot pay."""
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    _patch_report(monkeypatch, payable=["ltc"], too_low=[("trx", "12.00")], unknown=[])
+
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:pay:{plan_id}:trx"))
+
+    last = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]
+    assert "pick another coin" in last["text"].lower()
+    buttons = {b["text"] for row in last["reply_markup"]["inline_keyboard"] for b in row}
+    assert "LTC" in buttons
+
+
+@pytest.mark.asyncio
+async def test_buy_pay_reoffers_the_chooser_when_nowpayments_rejects_the_coin(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The minimum moved inside our cache window - the buyer must get
+    another coin to choose, never a dead end."""
+    from decimal import Decimal
+
+    from app.bot.handlers import buy as buy_handler
+    from app.services.payments import nowpayments
+    from app.services.payments.crypto_provider import CryptoProvider
+
+    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    _patch_report(monkeypatch, payable=["trx", "ltc"], too_low=[], unknown=[])
+    invalidated: list[str] = []
+
+    async def _reject(
+        self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None
+    ) -> tuple[str, str]:
+        raise nowpayments.PaymentBelowMinimumError("moved")
+
+    async def _fake_invalidate(code: str) -> None:
+        invalidated.append(code)
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _reject)
+    monkeypatch.setattr(buy_handler, "invalidate", _fake_invalidate)
+    await dispatcher.feed_update(bot, make_callback_update(999, f"buy:pay:{plan_id}:trx"))
+
+    assert invalidated == ["trx"]
+    last = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]
+    assert "pick another coin" in last["text"].lower()
+    buttons = {b["text"] for row in last["reply_markup"]["inline_keyboard"] for b in row}
+    assert "LTC" in buttons

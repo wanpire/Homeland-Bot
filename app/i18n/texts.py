@@ -48,9 +48,19 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "payment_below_minimum": (
             "⚠️ This plan's price is too low for a crypto payment right now — the "
-            "network minimum is higher than the plan price. Please contact support, "
-            "or try a higher-priced plan."
+            "lowest network minimum across the coins we accept is {min}. Please "
+            "choose a higher-priced plan, or contact support."
         ),
+        "choose_pay_currency": (
+            "💱 <b>Choose a coin</b>\n\nPrice: {price}\n\n"
+            "Pick the coin you'll pay with — only coins that currently accept this "
+            "amount are shown:"
+        ),
+        "payment_currency_changed": (
+            "⚠️ That coin's minimum just changed and no longer accepts this amount. "
+            "Please pick another coin."
+        ),
+        "back_to_plans_button": "⬅️ Back to Plans",
         "pay_with_crypto_button": "₿ Pay with Crypto",
         "open_payment_page_button": "🔗 Open Payment Page",
         "back_button": "⬅️ Back",
@@ -201,9 +211,19 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "payment_below_minimum": (
             "⚠️ قیمت این پلن برای پرداخت با ارز دیجیتال در حال حاضر خیلی پایین است — "
-            "حداقل مبلغ شبکه بیشتر از قیمت پلن است. لطفاً با پشتیبانی تماس بگیرید یا "
-            "پلن با قیمت بالاتر را امتحان کنید."
+            "کمترین حداقل شبکه در میان ارزهایی که می‌پذیریم {min} است. لطفاً پلنی با "
+            "قیمت بالاتر انتخاب کنید یا با پشتیبانی تماس بگیرید."
         ),
+        "choose_pay_currency": (
+            "💱 <b>انتخاب ارز</b>\n\nقیمت: {price}\n\n"
+            "ارزی که با آن پرداخت می‌کنید را انتخاب کنید — فقط ارزهایی نمایش داده "
+            "می‌شوند که در حال حاضر این مبلغ را می‌پذیرند:"
+        ),
+        "payment_currency_changed": (
+            "⚠️ حداقل مبلغ این ارز همین الان تغییر کرد و دیگر این مبلغ را نمی‌پذیرد. "
+            "لطفاً ارز دیگری انتخاب کنید."
+        ),
+        "back_to_plans_button": "⬅️ بازگشت به پلن‌ها",
         "pay_with_crypto_button": "₿ پرداخت با ارز دیجیتال",
         "open_payment_page_button": "🔗 باز کردن صفحه پرداخت",
         "back_button": "⬅️ بازگشت",

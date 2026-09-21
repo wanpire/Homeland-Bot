@@ -8,6 +8,7 @@ from app.services.payments import nowpayments
 from app.services.payments.base import PayabilityReport, PaymentProvider, WebhookEvent
 from app.services.payments.currencies import PayCurrency
 from app.services.payments.minimums import get_minimums
+from app.services.payments.nowpayments import PaymentProviderNotConfiguredError
 
 
 class CryptoProvider(PaymentProvider):
@@ -16,6 +17,13 @@ class CryptoProvider(PaymentProvider):
         A stale minimum still counts - it is a real NOWPayments number,
         only older than the refresh window; only a coin we have no number
         for at all lands in `unknown`."""
+        # Checked up front rather than left to the per-coin lookups:
+        # those record a missing key as "unknown", which the bot renders
+        # as "we couldn't reach the provider". An unconfigured gateway is
+        # a different thing entirely and must surface as "coming soon".
+        if not get_settings().nowpayments_api_key:
+            raise PaymentProviderNotConfiguredError("NOWPAYMENTS_API_KEY is not set")
+
         payable: list[PayCurrency] = []
         too_low: list[tuple[PayCurrency, Decimal]] = []
         unknown: list[PayCurrency] = []
