@@ -51,46 +51,33 @@ class Settings(BaseSettings):
     stripe_api_key: str = ""
     stripe_webhook_secret: str = ""
 
-    # NOWPayments - config placeholders only, no live keys yet.
-    # create_crypto_payment raises PaymentProviderNotConfiguredError while
-    # nowpayments_api_key is blank, so the bot can run today with crypto
-    # payment visibly unavailable until real keys are provisioned.
-    #
-    # Settlement/outcome currency (USDT on TRC-20, primary) is configured
-    # in the NOWPayments dashboard itself (payout wallet address) - not
-    # in code, and not something this app ever needs to know about.
-    nowpayments_api_key: str = ""
-    nowpayments_ipn_secret: str = ""
-    nowpayments_ipn_callback_url: str = ""
+    # Plisio - ONE secret key authenticates API calls AND signs callbacks;
+    # there is no separate IPN secret. create_crypto_payment raises
+    # PaymentProviderNotConfiguredError while this is blank, so the bot
+    # runs with crypto visibly unavailable until a key is provisioned.
+    plisio_secret_key: str = ""
 
-    # Coins a customer may pay with, as NOWPayments currency codes, in the
-    # order the payment chooser lists them. Each must also be enabled in
-    # the NOWPayments dashboard's coin settings. Extend here (e.g. add
-    # ",ton") - never hardcode a per-coin minimum anywhere: minimums come
-    # live from GET /v1/min-amount, see app/services/payments/minimums.py.
-    nowpayments_pay_currencies: str = "usdttrc20,usdtbsc,trx,ltc"
+    # Full public URL Plisio POSTs invoice updates to. MUST carry
+    # ?json=true: without it Plisio sends a PHP-serialized form post whose
+    # verify_hash this app cannot reproduce - see the migration spec §3.
+    plisio_callback_url: str = ""
 
-    # The coin our NOWPayments payout wallet settles in. Used as
-    # min-amount's currency_to: a coin's real minimum is the minimum for
-    # converting it INTO this currency. Verified live on 2026-09-21 -
-    # omitting currency_to does NOT fall back to the dashboard wallet as
-    # the API docs claim; it prices the coin against itself and reported
-    # TRX at $0.25 instead of its true $12.31, which would have offered
-    # TRX for plans it cannot actually pay. Change this only if the
-    # dashboard payout wallet changes.
-    nowpayments_settlement_currency: str = "usdttrc20"
+    # Coins the buyer may pay with, as Plisio currency IDs (the ID column
+    # of Plisio's Supported cryptocurrencies table), sent as
+    # allowed_psys_cids so the buyer picks one on Plisio's invoice page.
+    # Each must also have a wallet configured on the Plisio account.
+    plisio_pay_currencies: str = "LTC,TON,USDT_TON,USDT_TRX,TRX"
 
-    # Used only to build NOWPayments' optional success_url/cancel_url
-    # (a deep link back into the bot after the hosted payment page) -
-    # blank means those params are simply omitted from the invoice
-    # request; NOWPayments shows its own default confirmation page
-    # instead. Real confirmation always happens via the IPN-triggered
-    # Telegram message regardless, so this is cosmetic only.
+    # Used only to build Plisio's optional success_invoice_url /
+    # fail_invoice_url (a deep link back into the bot from the hosted
+    # invoice page) - blank means those params are simply omitted. Real
+    # confirmation always happens via the callback-triggered Telegram
+    # message regardless, so this is cosmetic only.
     bot_username: str = ""
 
     @property
-    def nowpayments_pay_currency_list(self) -> list[str]:
-        return [code.strip().lower() for code in self.nowpayments_pay_currencies.split(",") if code.strip()]
+    def plisio_pay_currency_list(self) -> list[str]:
+        return [code.strip().upper() for code in self.plisio_pay_currencies.split(",") if code.strip()]
 
     @property
     def admin_id_list(self) -> list[int]:

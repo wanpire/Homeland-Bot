@@ -16,7 +16,7 @@ def _clear_settings_cache() -> None:
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     for key in list(os.environ):
-        if key.startswith(("BOT_TOKEN", "ADMIN_IDS", "IBSNG_", "POSTGRES_", "REDIS_", "STRIPE_", "NOWPAYMENTS_")):
+        if key.startswith(("BOT_TOKEN", "ADMIN_IDS", "IBSNG_", "POSTGRES_", "REDIS_", "STRIPE_", "PLISIO_")):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("BOT_TOKEN", "123:TEST")
     monkeypatch.setenv("IBSNG_BASE_URL", "http://ibsng.example:1235")
@@ -65,10 +65,28 @@ def test_settings_database_and_redis_urls() -> None:
     assert settings.redis_url == f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
 
 
-def test_settings_nowpayments_fields_default_blank() -> None:
+def test_settings_plisio_fields_default_blank() -> None:
     from app.config import get_settings
 
     settings = get_settings()
-    assert settings.nowpayments_api_key == ""
-    assert settings.nowpayments_ipn_secret == ""
+    assert settings.plisio_secret_key == ""
+    assert settings.plisio_callback_url == ""
     assert settings.bot_username == ""
+
+
+def test_settings_plisio_pay_currency_list_defaults_to_the_account_wallets() -> None:
+    """Plisio currency IDs, upper-case, exactly as its Supported
+    cryptocurrencies table spells them."""
+    from app.config import get_settings
+
+    assert get_settings().plisio_pay_currency_list == ["LTC", "TON", "USDT_TON", "USDT_TRX", "TRX"]
+
+
+def test_settings_plisio_pay_currency_list_normalises_whitespace_and_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setenv("PLISIO_PAY_CURRENCIES", " ltc , usdt_ton ,, TRX ")
+    _clear_settings_cache()
+    assert get_settings().plisio_pay_currency_list == ["LTC", "USDT_TON", "TRX"]

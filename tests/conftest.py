@@ -29,8 +29,8 @@ _REQUIRED_TEST_ENV = {
     "IBSNG_AUTH_REMOTEADDR": "127.0.0.1",
     "ENVIRONMENT": "test",
     "LOG_LEVEL": "WARNING",
-    "NOWPAYMENTS_API_KEY": "test-nowpayments-api-key",
-    "NOWPAYMENTS_IPN_SECRET": "test-nowpayments-ipn-secret",
+    "PLISIO_SECRET_KEY": "test-plisio-secret-key",
+    "PLISIO_CALLBACK_URL": "https://bot.test/webhooks/crypto?json=true",
 }
 for _key, _default in _REQUIRED_TEST_ENV.items():
     os.environ.setdefault(_key, _default)
