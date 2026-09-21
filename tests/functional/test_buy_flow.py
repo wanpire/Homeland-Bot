@@ -233,10 +233,9 @@ async def test_buy_confirm_shows_coming_soon_and_creates_no_account(
 
     plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
 
-    # No real payment provider is configured (Stripe never shipped, and
-    # this test predates NOWPayments wiring) - buy_confirm_cb must fall
-    # back to the coming-soon screen and, crucially, still create no
-    # orphan VPN/IBSng account.
+    # No payment provider is configured - buy_confirm_cb must fall back
+    # to the coming-soon screen and, crucially, still create no orphan
+    # VPN/IBSng account.
     monkeypatch.setattr(get_settings(), "plisio_secret_key", "")
     await dispatcher.feed_update(bot, make_callback_update(999, f"buy:confirm:{plan_id}"))
 

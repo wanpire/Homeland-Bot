@@ -348,10 +348,10 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
 async def test_webhook_finished_after_partially_paid_still_activates(
     bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regression test for the top-up flow: a "finished" IPN arriving
-    after an earlier "partially_paid" IPN for the same payment must still
-    activate the service - partially_paid is not terminal on NOWPayments'
-    side (spec §9)."""
+    """Regression test for the top-up flow: a "completed" callback
+    arriving after an earlier partial payment for the same order must
+    still activate the service - the same Plisio invoice keeps accepting
+    funds until it is paid in full (spec §9)."""
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
