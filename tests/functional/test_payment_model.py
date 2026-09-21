@@ -32,7 +32,7 @@ async def test_create_payment_row_defaults(seeded_catalog: dict) -> None:
 
     assert payment.id is not None
     assert payment.status == "pending"
-    assert payment.provider == "nowpayments"
+    assert payment.provider == "plisio"
     assert payment.vpn_user_id is None
     assert payment.discount_code_id is None
     assert payment.provider_payment_id is None

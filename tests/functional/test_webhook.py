@@ -308,7 +308,7 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
     from app.services.payments.service import create_crypto_payment
     from app.services.vpn_users import VPNUsernameTakenError
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str, pay_currency: str | None = None):
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd, description: str):
         return "https://plisio.net/invoice/wh5", "plisio-wh-5"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)

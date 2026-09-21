@@ -5,6 +5,7 @@ import html
 import logging
 import re
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -15,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.filters.admin import IsFullAdmin
 from app.bot.keyboards.admin_settings import (
     back_to_settings_keyboard,
-    crypto_minimums_keyboard,
     settings_edit_cancel_keyboard,
 )
 from app.bot.keyboards.crypto_settlement import (
@@ -37,15 +37,14 @@ from app.bot.states.admin_settings import (
     EditReminderStates,
     EditSupportStates,
 )
+from app.config import get_settings
 from app.db.session import async_session_maker
 from app.services.app_config import get_config, set_config
 from app.services.catalog import format_price_usd, get_plan, list_plans, update_plan
 from app.services.groups import sync_groups
-from app.services.payments.minimums import STALE, CurrencyMinimum, get_minimums
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
-from app.services.payments import nowpayments
-from app.services.payments.nowpayments import PaymentProviderNotConfiguredError
+from app.services.payments.plisio import PaymentProviderNotConfiguredError, PlisioError, list_currencies
 from app.services.reminders import DEFAULT_DAYS_BEFORE
 from app.services.mandatory_channel import (
     get_mandatory_channels,
@@ -464,8 +463,8 @@ async def _crypto_settlement_status_text(session: AsyncSession) -> str:
     network = await get_config(session, "crypto_settlement_network")
     body = (
         "💳 <b>Crypto Settlement Address</b>\n\n"
-        "Internal reference record only — never wired into NOWPayments, "
-        "purely for the team to know where payouts are meant to land."
+        "Internal reference record only — never wired into Plisio, purely "
+        "for the team to know where payouts are meant to land."
     )
     if address is None or network is None:
         return f"{body}\n\nNo settlement address configured yet."
@@ -527,33 +526,10 @@ async def crypto_settlement_receive_address(message: Message, state: FSMContext)
         )
         return
 
-    try:
-        is_valid, error = await nowpayments.validate_payout_address(address=address, currency=network)
-    except PaymentProviderNotConfiguredError:
-        await state.clear()
-        await message.answer(
-            "⚠️ NOWPayments isn't configured, so the address can't be validated right now.",
-            reply_markup=back_to_settings_keyboard(),
-        )
-        return
-    except nowpayments.NowPaymentsError:
-        logger.error("NOWPayments address validation failed for network %s", network, exc_info=True)
-        await message.answer(
-            "⚠️ Couldn't reach NOWPayments to validate this address right now. Please try again shortly.",
-            reply_markup=crypto_settlement_edit_cancel_keyboard(),
-        )
-        return
-
-    if not is_valid:
-        # NOWPayments echoes the submitted address back inside its own
-        # error message (confirmed against the real API) - it must be
-        # escaped before going into this HTML-parse_mode reply, same as
-        # _crypto_settlement_status_text already does for the saved value.
-        await message.answer(
-            _CRYPTO_INVALID_ADDRESS_TEXT.format(reason=html.escape(error or "Invalid address."), network=label),
-            reply_markup=crypto_settlement_edit_cancel_keyboard(),
-        )
-        return
+    # No API-side validation: Plisio documents no address-validation
+    # endpoint, and this record is an internal note about where payouts
+    # are meant to land rather than anything wired into the gateway.
+    # Payout wallets themselves are configured in the Plisio dashboard.
 
     async with async_session_maker() as session:
         await set_config(session, "crypto_settlement_address", address)
@@ -563,47 +539,51 @@ async def crypto_settlement_receive_address(message: Message, state: FSMContext)
     await message.answer(f"✅ Settlement address saved.\n\n{text}", reply_markup=crypto_settlement_status_keyboard())
 
 
-def _minimum_line(minimum: CurrencyMinimum) -> str:
-    """One coin's status. English-only, like every adm:* screen."""
-    if minimum.min_usd is None:
-        detail = f"unknown — last error: {html.escape(minimum.last_error)}" if minimum.last_error else "unknown"
-        return f"• <b>{html.escape(minimum.currency.label)}</b>: {detail}"
+def _coin_line(row: dict[str, Any]) -> str:
+    """One coin's live state. English-only, like every adm:* screen."""
+    name = html.escape(str(row.get("name") or row.get("cid") or "?"))
+    cid = html.escape(str(row.get("cid") or "?"))
+    raw_min = str(row.get("min_sum_in") or "?")
+    try:
+        min_usd = f"${Decimal(str(row.get('min_sum_in') or 0)) * Decimal(str(row.get('price_usd') or 0)):.2f}"
+    except (ArithmeticError, InvalidOperation, ValueError):
+        min_usd = "unknown"
 
-    age = minimum.age_seconds or 0.0
-    age_text = f"{age / 60:.0f} min ago" if age < 3600 else f"{age / 3600:.1f} h ago"
-    line = f"• <b>{html.escape(minimum.currency.label)}</b>: ${minimum.min_usd} — {minimum.state}, {age_text}"
-    if minimum.state == STALE and minimum.last_error:
-        line += f"\n    last error: {html.escape(minimum.last_error)}"
-    return line
+    flags = []
+    if row.get("maintenance"):
+        flags.append("maintenance")
+    if str(row.get("hidden", "0")) not in ("0", "False", "false"):
+        flags.append("not enabled on this account")
+    suffix = f" — {', '.join(flags)}" if flags else ""
+    return f"• <b>{name}</b> ({cid}): min {html.escape(raw_min)} ≈ {min_usd}{suffix}"
 
 
-async def _minimums_text(*, force_refresh: bool) -> str:
-    rows = await get_minimums(force_refresh=force_refresh)
-    body = "\n".join(_minimum_line(row) for row in rows) or "No pay currencies configured."
+async def _crypto_coins_text() -> str:
+    accepted = get_settings().plisio_pay_currency_list
+    try:
+        rows = await list_currencies()
+    except PaymentProviderNotConfiguredError:
+        return "💱 <b>Crypto Coins</b>\n\nPlisio isn't configured yet (PLISIO_SECRET_KEY is blank)."
+    except PlisioError as exc:
+        logger.error("Plisio currencies lookup failed", exc_info=True)
+        return f"💱 <b>Crypto Coins</b>\n\n⚠️ Couldn't reach Plisio: {html.escape(str(exc)[:300])}"
+
+    by_cid = {str(row.get("cid")): row for row in rows}
+    lines = [
+        _coin_line(by_cid[cid]) if cid in by_cid else f"• <b>{html.escape(cid)}</b>: not offered by Plisio"
+        for cid in accepted
+    ]
     return (
-        "💱 <b>Crypto Minimums</b>\n\n"
-        "Live NOWPayments minimum per accepted coin, cached for 10 minutes.\n"
-        "A plan priced below a coin's minimum is hidden from buyers choosing that coin.\n\n" + body
+        "💱 <b>Crypto Coins</b>\n\n"
+        "The coins buyers can choose on the Plisio invoice page, with Plisio's own "
+        "live minimum per coin.\n\n" + ("\n".join(lines) or "No pay currencies configured.")
     )
 
 
-@router.callback_query(F.data == "adm:settings:minimums")
-async def settings_minimums_cb(callback: CallbackQuery, state: FSMContext) -> None:
-    # No inline permission check: this whole router is already gated by
-    # IsFullAdmin (see router.callback_query.filter above).
+@router.callback_query(F.data == "adm:settings:coins")
+async def settings_crypto_coins_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    # No inline permission check: this whole router is gated by IsFullAdmin.
     await state.clear()
     if callback.message is not None:
-        await callback.message.edit_text(
-            await _minimums_text(force_refresh=False), reply_markup=crypto_minimums_keyboard()
-        )
+        await callback.message.edit_text(await _crypto_coins_text(), reply_markup=back_to_settings_keyboard())
     await callback.answer()
-
-
-@router.callback_query(F.data == "adm:settings:minimums:refresh")
-async def settings_minimums_refresh_cb(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
-    if callback.message is not None:
-        await callback.message.edit_text(
-            await _minimums_text(force_refresh=True), reply_markup=crypto_minimums_keyboard()
-        )
-    await callback.answer("Refreshed from NOWPayments.")

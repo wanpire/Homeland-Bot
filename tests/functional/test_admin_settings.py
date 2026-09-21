@@ -391,59 +391,77 @@ async def test_trial_limit_toggle_flips_state(dispatcher: Any, bot: Any, fake_se
 
 
 @pytest.mark.asyncio
-async def test_crypto_minimums_screen_lists_state_per_coin(
+async def test_crypto_coins_screen_lists_configured_coins(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from decimal import Decimal
+    from typing import Any as _Any
 
     from app.bot.handlers import admin_settings
-    from app.services.payments.currencies import PayCurrency
-    from app.services.payments.minimums import FRESH, UNKNOWN, CurrencyMinimum
 
-    async def _fake_get_minimums(*, force_refresh: bool = False) -> list[CurrencyMinimum]:
+    async def _fake_list_currencies() -> list[dict[str, _Any]]:
         return [
-            CurrencyMinimum(PayCurrency("usdttrc20", "USDT (TRC-20)"), Decimal("12.08"), 0.0, FRESH, None),
-            CurrencyMinimum(PayCurrency("ltc", "LTC (Litecoin)"), None, None, UNKNOWN, "502 upstream"),
+            {"cid": "LTC", "name": "Litecoin", "price_usd": "80.00", "min_sum_in": "0.001",
+             "hidden": 0, "maintenance": False},
+            {"cid": "TRX", "name": "Tron", "price_usd": "0.30", "min_sum_in": "10",
+             "hidden": 1, "maintenance": True},
+            {"cid": "BTC", "name": "Bitcoin", "price_usd": "60000", "min_sum_in": "0.0000001",
+             "hidden": 0, "maintenance": False},
         ]
 
-    monkeypatch.setattr(admin_settings, "get_minimums", _fake_get_minimums)
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:minimums"))
+    monkeypatch.setattr(admin_settings, "list_currencies", _fake_list_currencies)
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:coins"))
 
     text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
-    assert "USDT (TRC-20)" in text and "$12.08" in text and "fresh" in text
-    assert "LTC (Litecoin)" in text and "unknown" in text and "502 upstream" in text
+    assert "Litecoin" in text and "$0.08" in text          # 0.001 LTC x $80
+    assert "Tron" in text and "maintenance" in text.lower()
+    assert "not enabled on this account" in text          # hidden=1
+    assert "Bitcoin" not in text, "only the coins we accept belong on this screen"
+    assert "TON" in text, "a configured coin Plisio didn't return must still be listed"
 
 
 @pytest.mark.asyncio
-async def test_crypto_minimums_refresh_forces_a_live_lookup(
+async def test_crypto_coins_screen_reports_an_api_failure(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """An admin diagnosing a missing coin needs the real reason, not a
+    blank screen."""
     from app.bot.handlers import admin_settings
-    from app.services.payments.minimums import CurrencyMinimum
+    from app.services.payments.plisio import PlisioError
 
-    forced: list[bool] = []
+    async def _boom() -> list[dict[str, object]]:
+        raise PlisioError("upstream 500")
 
-    async def _fake_get_minimums(*, force_refresh: bool = False) -> list[CurrencyMinimum]:
-        forced.append(force_refresh)
-        return []
+    monkeypatch.setattr(admin_settings, "list_currencies", _boom)
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:coins"))
 
-    monkeypatch.setattr(admin_settings, "get_minimums", _fake_get_minimums)
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:minimums:refresh"))
-
-    assert forced == [True]
+    text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
+    assert "upstream 500" in text
 
 
 @pytest.mark.asyncio
-async def test_non_full_admin_cannot_open_crypto_minimums(
+async def test_crypto_coins_screen_says_so_when_unconfigured(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "plisio_secret_key", "")
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:coins"))
+
+    text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
+    assert "isn't configured" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_non_full_admin_cannot_open_crypto_coins(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession
 ) -> None:
     from app.db.models.admin_user import AdminUser
 
     async with async_session_maker() as session:
-        session.add(AdminUser(telegram_id=744, level="sales"))
+        session.add(AdminUser(telegram_id=745, level="sales"))
         await session.commit()
 
-    await dispatcher.feed_update(bot, make_callback_update(744, "adm:settings:minimums"))
+    await dispatcher.feed_update(bot, make_callback_update(745, "adm:settings:coins"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert not any("crypto minimums" in c[1].get("text", "").lower() for c in edited)
+    assert not any("crypto coins" in c[1].get("text", "").lower() for c in edited)

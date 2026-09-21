@@ -38,18 +38,18 @@ async def test_edit_shows_network_choice_buttons(dispatcher: Any, bot: Any, fake
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     keyboard = edited[-1][1]["reply_markup"]["inline_keyboard"]
     callbacks = [b["callback_data"] for row in keyboard for b in row]
-    assert "adm:settings:crypto:network:usdttrc20" in callbacks
-    assert "adm:settings:crypto:network:usdtbsc" in callbacks
-    assert "adm:settings:crypto:network:trx" in callbacks
-    assert "adm:settings:crypto:network:ltc" in callbacks
+    assert "adm:settings:crypto:network:USDT_TRX" in callbacks
+    assert "adm:settings:crypto:network:USDT_TON" in callbacks
+    assert "adm:settings:crypto:network:TRX" in callbacks
+    assert "adm:settings:crypto:network:LTC" in callbacks
 
 
 @pytest.mark.asyncio
 async def test_choosing_a_network_prompts_for_address(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:usdttrc20"))
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:USDT_TRX"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert "usdt (trc20)" in edited[-1][1]["text"].lower()
+    assert "usdt (trc-20)" in edited[-1][1]["text"].lower()
 
 
 @pytest.mark.asyncio
@@ -57,19 +57,13 @@ async def test_valid_address_is_saved_and_shown_on_status_screen(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.services.app_config import get_config
-    from app.services.payments import nowpayments
 
-    async def _fake_validate(*, address: str, currency: str) -> tuple[bool, str | None]:
-        return True, None
-
-    monkeypatch.setattr(nowpayments, "validate_payout_address", _fake_validate)
-
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:usdttrc20"))
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:USDT_TRX"))
     await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"))
 
     async with async_session_maker() as session:
         assert await get_config(session, "crypto_settlement_address") == "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
-        assert await get_config(session, "crypto_settlement_network") == "usdttrc20"
+        assert await get_config(session, "crypto_settlement_network") == "USDT_TRX"
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert "saved" in sent[-1][1]["text"].lower()
@@ -77,106 +71,47 @@ async def test_valid_address_is_saved_and_shown_on_status_screen(
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto"))
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert "tr7nhqjekqxgtci8q8zy4pl8otszgjlj6t" in edited[-1][1]["text"].lower()
-    assert "usdt (trc20)" in edited[-1][1]["text"].lower()
+    assert "usdt (trc-20)" in edited[-1][1]["text"].lower()
 
-
-@pytest.mark.asyncio
-async def test_invalid_address_is_rejected_with_nowpayments_message_and_not_saved(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.services.app_config import get_config
-    from app.services.payments import nowpayments
-
-    async def _fake_validate(*, address: str, currency: str) -> tuple[bool, str | None]:
-        return False, "Invalid payout address: USDTTRC20 bogus"
-
-    monkeypatch.setattr(nowpayments, "validate_payout_address", _fake_validate)
-
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:usdttrc20"))
-    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "bogus"))
-
-    async with async_session_maker() as session:
-        assert await get_config(session, "crypto_settlement_address") is None
-
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert "invalid payout address" in sent[-1][1]["text"].lower()
 
 
 @pytest.mark.asyncio
-async def test_empty_address_is_rejected_without_calling_nowpayments(
+async def test_empty_address_is_rejected_without_saving(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.services.payments import nowpayments
 
-    async def _must_not_be_called(*, address: str, currency: str) -> tuple[bool, str | None]:
-        raise AssertionError("validate_payout_address must not be called for an empty address")
-
-    monkeypatch.setattr(nowpayments, "validate_payout_address", _must_not_be_called)
-
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:ltc"))
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:LTC"))
     await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "   "))
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert "non-empty" in sent[-1][1]["text"].lower()
 
 
-@pytest.mark.asyncio
-async def test_invalid_address_error_message_is_html_escaped(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """NOWPayments echoes the submitted address back inside its error
-    message (confirmed against the real API) - if it ever contains HTML
-    special characters, this must not reach Telegram's HTML parser
-    unescaped (parse_mode is HTML app-wide)."""
-    from app.services.payments import nowpayments
 
-    async def _fake_validate(*, address: str, currency: str) -> tuple[bool, str | None]:
-        return False, "Invalid payout address: USDTTRC20 <script>&bogus"
 
-    monkeypatch.setattr(nowpayments, "validate_payout_address", _fake_validate)
-
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:usdttrc20"))
-    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "<script>&bogus"))
-
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    text = sent[-1][1]["text"]
-    assert "<script>" not in text
-    assert "&lt;script&gt;" in text
-    assert "&amp;bogus" in text
 
 
 @pytest.mark.asyncio
-async def test_nowpayments_api_failure_shows_clear_message_instead_of_crashing(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
+async def test_saving_an_address_makes_no_outbound_api_call(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Plisio documents no address-validation endpoint, and this record is
+    an internal note rather than anything wired into the gateway, so
+    saving must not reach out to any API."""
+    import httpx
+
+    from app.db.session import async_session_maker
     from app.services.app_config import get_config
-    from app.services.payments import nowpayments
 
-    async def _boom(*, address: str, currency: str) -> tuple[bool, str | None]:
-        raise nowpayments.NowPaymentsError("simulated 500")
+    async def _must_not_be_called(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("saving a settlement address must make no HTTP call")
 
-    monkeypatch.setattr(nowpayments, "validate_payout_address", _boom)
+    monkeypatch.setattr(httpx.AsyncClient, "get", _must_not_be_called)
+    monkeypatch.setattr(httpx.AsyncClient, "post", _must_not_be_called)
 
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:ltc"))
-    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "LcccccccccccccccccccccccccccccccX"))
-
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert "couldn't reach nowpayments" in sent[-1][1]["text"].lower()
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:LTC"))
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "LbXyZexampleLitecoinAddress"))
 
     async with async_session_maker() as session:
-        assert await get_config(session, "crypto_settlement_address") is None
-
-
-@pytest.mark.asyncio
-async def test_unconfigured_nowpayments_shows_clear_message_instead_of_crashing(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
-
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings:crypto:network:trx"))
-    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "TXYZ123"))
-
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert "can't be validated" in sent[-1][1]["text"].lower()
+        assert await get_config(session, "crypto_settlement_address") == "LbXyZexampleLitecoinAddress"
+        assert await get_config(session, "crypto_settlement_network") == "LTC"
