@@ -15,10 +15,10 @@ def _plan_id(seeded_catalog: dict, *, category: str, name: str) -> int:
 def test_webhook_event_holds_expected_fields() -> None:
     from app.services.payments.base import WebhookEvent
 
-    event = WebhookEvent(provider_payment_id="np-1", order_id="42", raw_status="finished", paid_amount=Decimal("5"))
-    assert event.provider_payment_id == "np-1"
+    event = WebhookEvent(provider_payment_id="plisio-1", order_id="42", raw_status="completed", paid_amount=Decimal("5"))
+    assert event.provider_payment_id == "plisio-1"
     assert event.order_id == "42"
-    assert event.raw_status == "finished"
+    assert event.raw_status == "completed"
     assert event.paid_amount == Decimal("5")
 
 
@@ -31,91 +31,91 @@ def test_payment_provider_is_abstract() -> None:
 
 @pytest.mark.asyncio
 async def test_crypto_provider_create_invoice_delegates_to_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.services.payments import nowpayments
+    from app.services.payments import plisio
     from app.services.payments.crypto_provider import CryptoProvider
 
-    async def _fake_create_invoice(
-        *, order_id: str, amount: Decimal, description: str, pay_currency: str | None = None
-    ) -> tuple[str, str]:
+    async def _fake_create_invoice(*, order_id: str, amount: Decimal, description: str) -> tuple[str, str]:
         assert order_id == "7"
         assert amount == Decimal("9.00")
         assert description == "Homeland: 2 Months"
-        assert pay_currency == "ltc"
-        return "https://nowpayments.io/payment/xyz", "np-777"
+        return "https://plisio.net/invoice/xyz", "plisio-777"
 
-    monkeypatch.setattr(nowpayments, "create_invoice", _fake_create_invoice)
+    monkeypatch.setattr(plisio, "create_invoice", _fake_create_invoice)
 
     provider = CryptoProvider()
     url, payment_id = await provider.create_invoice(
-        order_id="7", amount_usd=Decimal("9.00"), description="Homeland: 2 Months", pay_currency="ltc"
+        order_id="7", amount_usd=Decimal("9.00"), description="Homeland: 2 Months"
     )
-    assert url == "https://nowpayments.io/payment/xyz"
-    assert payment_id == "np-777"
+    assert url == "https://plisio.net/invoice/xyz"
+    assert payment_id == "plisio-777"
 
 
-def test_crypto_provider_verify_webhook_returns_event_on_valid_signature() -> None:
+def _plisio_callback(payload: dict[str, Any]) -> bytes:
+    """A correctly signed Plisio callback body: HMAC-SHA1 over the compact
+    JSON payload with verify_hash removed, keyed with PLISIO_SECRET_KEY.
+    The hash travels inside the body - Plisio sends no signature header."""
     import hashlib
     import hmac as hmac_module
     import json as json_module
 
     from app.config import get_settings
+
+    encoded = json_module.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    digest = hmac_module.new(
+        get_settings().plisio_secret_key.encode(), encoded.encode(), hashlib.sha1
+    ).hexdigest()
+    return json_module.dumps({**payload, "verify_hash": digest}, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def test_crypto_provider_verify_webhook_returns_event_on_valid_callback() -> None:
     from app.services.payments.crypto_provider import CryptoProvider
 
-    payload = {"order_id": "42", "payment_id": "np-1", "payment_status": "finished", "actually_paid": "5.0"}
-    raw_body = json_module.dumps(payload).encode()
-    canonical = json_module.dumps(payload, sort_keys=True, separators=(",", ":"))
-    secret = get_settings().nowpayments_ipn_secret
-    signature = hmac_module.new(secret.encode(), canonical.encode(), hashlib.sha512).hexdigest()
+    body = _plisio_callback(
+        {"txn_id": "plisio-1", "order_number": "42", "status": "completed", "amount": "5.0"}
+    )
 
-    event = CryptoProvider().verify_webhook(raw_body, signature)
+    event = CryptoProvider().verify_webhook(body, "")
     assert event is not None
     assert event.order_id == "42"
-    assert event.provider_payment_id == "np-1"
-    assert event.raw_status == "finished"
+    assert event.provider_payment_id == "plisio-1"
+    assert event.raw_status == "completed"
     assert event.paid_amount == Decimal("5.0")
 
 
-def test_crypto_provider_verify_webhook_returns_none_on_invalid_signature() -> None:
-    from app.services.payments.crypto_provider import CryptoProvider
-
-    event = CryptoProvider().verify_webhook(b'{"order_id": "1"}', "not-a-valid-signature")
-    assert event is None
-
-
-def test_crypto_provider_verify_webhook_returns_none_when_order_id_missing() -> None:
-    import hashlib
-    import hmac as hmac_module
+def test_crypto_provider_verify_webhook_returns_none_on_invalid_hash() -> None:
     import json as json_module
 
-    from app.config import get_settings
     from app.services.payments.crypto_provider import CryptoProvider
 
-    payload = {"payment_id": "np-1", "payment_status": "finished"}
-    raw_body = json_module.dumps(payload).encode()
-    canonical = json_module.dumps(payload, sort_keys=True, separators=(",", ":"))
-    secret = get_settings().nowpayments_ipn_secret
-    signature = hmac_module.new(secret.encode(), canonical.encode(), hashlib.sha512).hexdigest()
-
-    assert CryptoProvider().verify_webhook(raw_body, signature) is None
+    body = json_module.dumps({"txn_id": "x", "order_number": "1", "status": "completed", "verify_hash": "nope"}).encode()
+    assert CryptoProvider().verify_webhook(body, "") is None
 
 
-def test_crypto_provider_verify_webhook_handles_missing_actually_paid() -> None:
-    import hashlib
-    import hmac as hmac_module
-    import json as json_module
-
-    from app.config import get_settings
+def test_crypto_provider_verify_webhook_returns_none_when_order_number_missing() -> None:
     from app.services.payments.crypto_provider import CryptoProvider
 
-    payload = {"order_id": "42", "payment_id": "np-1", "payment_status": "waiting"}
-    raw_body = json_module.dumps(payload).encode()
-    canonical = json_module.dumps(payload, sort_keys=True, separators=(",", ":"))
-    secret = get_settings().nowpayments_ipn_secret
-    signature = hmac_module.new(secret.encode(), canonical.encode(), hashlib.sha512).hexdigest()
+    body = _plisio_callback({"txn_id": "plisio-1", "status": "completed"})
+    assert CryptoProvider().verify_webhook(body, "") is None
 
-    event = CryptoProvider().verify_webhook(raw_body, signature)
+
+def test_crypto_provider_verify_webhook_handles_missing_amount() -> None:
+    """Progress callbacks ("new", "pending") carry no received amount."""
+    from app.services.payments.crypto_provider import CryptoProvider
+
+    body = _plisio_callback({"txn_id": "plisio-1", "order_number": "42", "status": "pending"})
+
+    event = CryptoProvider().verify_webhook(body, "")
     assert event is not None
     assert event.paid_amount is None
+
+
+def test_crypto_provider_verify_webhook_ignores_the_signature_argument() -> None:
+    """Plisio has no signature header; the argument exists only to satisfy
+    the PaymentProvider interface and must never affect the verdict."""
+    from app.services.payments.crypto_provider import CryptoProvider
+
+    body = _plisio_callback({"txn_id": "plisio-1", "order_number": "42", "status": "completed"})
+    assert CryptoProvider().verify_webhook(body, "anything-at-all") is not None
 
 
 @pytest.mark.asyncio
@@ -125,8 +125,8 @@ async def test_create_crypto_payment_purchase_creates_pending_row_with_invoice(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/abc", "np-999"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/abc", "plisio-999"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -136,7 +136,7 @@ async def test_create_crypto_payment_purchase_creates_pending_row_with_invoice(
 
         plan = await get_plan(session, plan_id)
         payment = await create_crypto_payment(
-            session, telegram_id=950, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20",
+            session, telegram_id=950, purpose="purchase", plan=plan, vpn_user=None,
         )
 
     assert payment.id is not None
@@ -147,8 +147,8 @@ async def test_create_crypto_payment_purchase_creates_pending_row_with_invoice(
     assert payment.data_cap_mb == 10240
     assert payment.amount_usd == Decimal("5.00")
     assert payment.original_amount_usd is None
-    assert payment.invoice_url == "https://nowpayments.io/payment/abc"
-    assert payment.provider_payment_id == "np-999"
+    assert payment.invoice_url == "https://plisio.net/invoice/abc"
+    assert payment.provider_payment_id == "plisio-999"
     assert payment.status == "pending"
     assert payment.ibsng_username is not None
     assert payment.ibsng_password is not None
@@ -163,8 +163,8 @@ async def test_create_crypto_payment_renew_targets_existing_service(
     from app.services.payments.service import create_crypto_payment
     from app.services.vpn_users import create_vpn_user, generate_vpn_credentials
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/renew", "np-1000"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/renew", "plisio-1000"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -182,7 +182,7 @@ async def test_create_crypto_payment_renew_targets_existing_service(
 
         new_plan = await get_plan(session, stream_plan_id)
         payment = await create_crypto_payment(
-            session, telegram_id=951, purpose="renew", plan=new_plan, vpn_user=existing, pay_currency="usdttrc20",
+            session, telegram_id=951, purpose="renew", plan=new_plan, vpn_user=existing,
         )
 
     assert payment.purpose == "renew"
@@ -200,8 +200,8 @@ async def test_create_crypto_payment_applies_auto_discount(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/disc", "np-1001"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/disc", "np-1001"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -216,7 +216,7 @@ async def test_create_crypto_payment_applies_auto_discount(
 
         plan = await get_plan(session, plan_id)
         payment = await create_crypto_payment(
-            session, telegram_id=952, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20",
+            session, telegram_id=952, purpose="purchase", plan=plan, vpn_user=None,
         )
 
     assert payment.amount_usd == Decimal("4.50")
@@ -233,8 +233,8 @@ async def test_activate_finished_payment_purchase_creates_vpn_user(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import activate_finished_payment, create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/act", "np-2000"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/act", "np-2000"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -243,7 +243,7 @@ async def test_activate_finished_payment_purchase_creates_vpn_user(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=960, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=960, purpose="purchase", plan=plan, vpn_user=None)
 
     async with make_session() as session, IBSngClient() as client:
         from sqlalchemy import select
@@ -272,8 +272,8 @@ async def test_activate_finished_payment_renew_updates_existing_service(
     from app.services.payments.service import activate_finished_payment, create_crypto_payment
     from app.services.vpn_users import create_vpn_user, generate_vpn_credentials
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/renew2", "np-2001"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/renew2", "np-2001"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -290,7 +290,7 @@ async def test_activate_finished_payment_renew_updates_existing_service(
         from app.services.catalog import get_plan
 
         new_plan = await get_plan(session, stream_id)
-        payment = await create_crypto_payment(session, telegram_id=961, purpose="renew", plan=new_plan, vpn_user=existing, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=961, purpose="renew", plan=new_plan, vpn_user=existing)
 
     async with make_session() as session, IBSngClient() as client:
         from app.db.models.payment import Payment
@@ -318,8 +318,8 @@ async def test_activate_finished_payment_increments_discount_usage(
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import activate_finished_payment, create_crypto_payment
 
-    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None) -> tuple[str, str]:
-        return "https://nowpayments.io/payment/disc2", "np-2002"
+    async def _fake_create_invoice(self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return "https://plisio.net/invoice/disc2", "np-2002"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
 
@@ -333,7 +333,7 @@ async def test_activate_finished_payment_increments_discount_usage(
         from app.services.catalog import get_plan
 
         plan = await get_plan(session, plan_id)
-        payment = await create_crypto_payment(session, telegram_id=962, purpose="purchase", plan=plan, vpn_user=None, pay_currency="usdttrc20")
+        payment = await create_crypto_payment(session, telegram_id=962, purpose="purchase", plan=plan, vpn_user=None)
 
     async with make_session() as session, IBSngClient() as client:
         from app.db.models.payment import Payment

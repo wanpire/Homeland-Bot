@@ -391,7 +391,7 @@ async def test_renew_confirm_shows_coming_soon_and_does_not_mutate_service(
 
     # No real payment provider is configured - renew_confirm_cb must fall
     # back to the coming-soon screen and leave the service untouched.
-    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
+    monkeypatch.setattr(get_settings(), "plisio_secret_key", "")
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
@@ -409,29 +409,6 @@ async def test_renew_confirm_shows_coming_soon_and_does_not_mutate_service(
         live_group = await client.get_user_group(username=service.ibsng_username)
     assert live_group == original_group
 
-
-@pytest.mark.asyncio
-async def test_renew_confirm_shows_below_minimum_message(
-    dispatcher: Any,
-    bot: Any,
-    fake_session: FakeBotSession,
-    seeded_catalog: dict,
-    ibsng_server: FakeIBSngServer,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    telegram_id = 828
-    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
-    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
-    _patch_report(monkeypatch, payable=[], too_low=[("usdttrc20", "12.00"), ("trx", "10.50")], unknown=[])
-
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
-
-    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert len(edited) == 1
-    assert "too low" in edited[0][1]["text"].lower()
-    assert "$10.50" in edited[0][1]["text"]
-    buttons = [b["text"].lower() for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    assert any("back to plans" in b for b in buttons)
 
 
 @pytest.mark.asyncio
@@ -489,7 +466,7 @@ async def test_renew_confirm_malformed_ids_degrade_gracefully(
 
 
 @pytest.mark.asyncio
-async def test_renew_pay_creates_payment_and_shows_link(
+async def test_renew_confirm_creates_payment_and_shows_link(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from decimal import Decimal
@@ -499,27 +476,23 @@ async def test_renew_pay_creates_payment_and_shows_link(
     telegram_id = 840
     service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
     scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
-    _patch_report(monkeypatch, payable=["ltc"], too_low=[], unknown=[])
-    captured: dict[str, Any] = {}
 
     async def _fake_create_invoice(
-        self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None
+        self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str
     ) -> tuple[str, str]:
-        captured["pay_currency"] = pay_currency
-        return "https://nowpayments.io/payment/renewtest", "np-renew-1"
+        return "https://plisio.net/invoice/renewtest", "plisio-renew-1"
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
     await dispatcher.feed_update(
-        bot, make_callback_update(telegram_id, f"renew:pay:{service.id}:{scroll_plan_id}:ltc")
+        bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}")
     )
 
-    assert captured["pay_currency"] == "ltc"
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     assert "complete your payment" in edited[0][1]["text"].lower()
     all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     link_button = next(b for b in all_buttons if b["text"] == "🔗 Open Payment Page")
-    assert link_button["url"] == "https://nowpayments.io/payment/renewtest"
+    assert link_button["url"] == "https://plisio.net/invoice/renewtest"
 
     async with async_session_maker() as session:
         from sqlalchemy import select
@@ -543,7 +516,7 @@ async def test_renew_confirm_shows_coming_soon_when_provider_not_configured(
     service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
     scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
 
-    monkeypatch.setattr(get_settings(), "nowpayments_api_key", "")
+    monkeypatch.setattr(get_settings(), "plisio_secret_key", "")
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
@@ -699,113 +672,45 @@ async def test_renew_summary_shows_current_plan_name_in_persian(
     assert "2 Weeks" not in text
 
 
-def _patch_report(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    payable: list[str],
-    too_low: list[tuple[str, str]],
-    unknown: list[str],
-) -> None:
-    """Replaces the live NOWPayments payability lookup with a fixed
-    verdict, so each test states exactly which coins can pay."""
-    from decimal import Decimal
-
-    from app.bot.handlers import renew as renew_handler
-    from app.services.payments.base import PayabilityReport
-    from app.services.payments.currencies import PayCurrency
-
-    async def _fake(amount_usd: Decimal) -> PayabilityReport:
-        return PayabilityReport(
-            payable=[PayCurrency(code=c, label=c.upper()) for c in payable],
-            too_low=[(PayCurrency(code=c, label=c.upper()), Decimal(m)) for c, m in too_low],
-            unknown=[PayCurrency(code=c, label=c.upper()) for c in unknown],
-        )
-
-    monkeypatch.setattr(renew_handler, "check_payability", _fake)
-
-
 @pytest.mark.asyncio
-async def test_renew_confirm_lists_only_payable_coins(
+async def test_renew_confirm_goes_straight_to_the_payment_link(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    telegram_id = 851
+    """Plisio lets the buyer choose their coin on its own invoice page, so
+    the bot must not interpose a coin chooser of its own."""
+    from decimal import Decimal
+
+    from app.services.payments.crypto_provider import CryptoProvider
+
+    telegram_id = 861
     service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
     scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
-    _patch_report(monkeypatch, payable=["trx"], too_low=[("usdttrc20", "12.00")], unknown=[])
 
+    async def _fake_create_invoice(
+        self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str
+    ) -> tuple[str, str]:
+        return "https://plisio.net/invoice/xyz", "plisio-2"
+
+    monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    buttons = {b["text"]: b.get("callback_data") for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row}
-    assert buttons["TRX"] == f"renew:pay:{service.id}:{scroll_plan_id}:trx"
-    assert "USDTTRC20" not in buttons
-    assert any("back" in text.lower() for text in buttons)
+    assert len(edited) == 1
+    buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
+    assert any(b.get("url") == "https://plisio.net/invoice/xyz" for b in buttons)
+    assert not any((b.get("callback_data") or "").startswith("renew:pay:") for b in buttons)
 
 
 @pytest.mark.asyncio
-async def test_renew_confirm_unavailable_when_lookups_failed(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+async def test_renew_confirm_rejects_another_users_service(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:
-    telegram_id = 852
-    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
-    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
-    _patch_report(monkeypatch, payable=[], too_low=[], unknown=["usdttrc20", "trx"])
-
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"renew:confirm:{service.id}:{scroll_plan_id}"))
-
-    text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
-    assert "couldn't reach the payment provider" in text.lower()
-
-
-@pytest.mark.asyncio
-async def test_renew_pay_rejects_another_users_service(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ownership is re-checked on the coin step too - the chooser's
-    callback data must not become a way around it."""
-    owner_id = 853
+    """Ownership is still enforced on the step that creates the invoice."""
+    owner_id = 862
     service = await _create_service(seeded_catalog, telegram_id=owner_id, category="stream", name="1 Month")
     scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
-    _patch_report(monkeypatch, payable=["trx"], too_low=[], unknown=[])
 
-    await dispatcher.feed_update(bot, make_callback_update(999, f"renew:pay:{service.id}:{scroll_plan_id}:trx"))
+    await dispatcher.feed_update(bot, make_callback_update(999, f"renew:confirm:{service.id}:{scroll_plan_id}"))
 
     text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
     assert "not found" in text.lower()
-
-
-@pytest.mark.asyncio
-async def test_renew_pay_reoffers_the_chooser_when_nowpayments_rejects_the_coin(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from decimal import Decimal
-
-    from app.bot.handlers import renew as renew_handler
-    from app.services.payments import nowpayments
-    from app.services.payments.crypto_provider import CryptoProvider
-
-    telegram_id = 854
-    service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="stream", name="1 Month")
-    scroll_plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
-    _patch_report(monkeypatch, payable=["trx", "ltc"], too_low=[], unknown=[])
-    invalidated: list[str] = []
-
-    async def _reject(
-        self: CryptoProvider, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None
-    ) -> tuple[str, str]:
-        raise nowpayments.PaymentBelowMinimumError("moved")
-
-    async def _fake_invalidate(code: str) -> None:
-        invalidated.append(code)
-
-    monkeypatch.setattr(CryptoProvider, "create_invoice", _reject)
-    monkeypatch.setattr(renew_handler, "invalidate", _fake_invalidate)
-    await dispatcher.feed_update(
-        bot, make_callback_update(telegram_id, f"renew:pay:{service.id}:{scroll_plan_id}:trx")
-    )
-
-    assert invalidated == ["trx"]
-    last = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]
-    assert "pick another coin" in last["text"].lower()
-    buttons = {b["text"] for row in last["reply_markup"]["inline_keyboard"] for b in row}
-    assert "LTC" in buttons

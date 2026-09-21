@@ -19,11 +19,8 @@ from app.db.session import async_session_maker
 from app.i18n.texts import t
 from app.services.catalog import CATEGORIES, categories_with_active_plans, category_display_name, format_data_cap, format_price_usd, get_plan, list_plans, plan_display_name
 from app.services.discounts import discount_price, find_best_auto_discount
-from app.services.payments.nowpayments import NowPaymentsError, PaymentBelowMinimumError, PaymentProviderNotConfiguredError
-from app.bot.handlers._payability import render_payability
-from app.services.payments.currencies import find_currency
-from app.services.payments.minimums import invalidate
-from app.services.payments.service import check_payability, create_crypto_payment, quote_amount
+from app.services.payments.plisio import PaymentProviderNotConfiguredError, PlisioError
+from app.services.payments.service import create_crypto_payment
 
 logger = logging.getLogger(__name__)
 
@@ -116,122 +113,23 @@ async def buy_plan_cb(callback: CallbackQuery, lang: str) -> None:
 
 @router.callback_query(F.data.startswith("buy:confirm:"))
 async def buy_confirm_cb(callback: CallbackQuery, lang: str) -> None:
-    """No invoice is created here any more. NOWPayments enforces a
-    per-coin minimum that moves with network fees, so this step asks
-    which coins can pay this exact amount right now and offers only
-    those - a buyer can no longer pick a coin on the hosted page and
-    dead-end on "the network minimum is higher than the price"."""
+    """Creates the Plisio invoice and hands over the link. No coin is
+    chosen here: Plisio's own invoice page lets the buyer pick among the
+    coins this account accepts, and switch if one doesn't suit them."""
     plan_id = int(callback.data.split(":")[-1])
-    async with async_session_maker() as session:
-        plan = await get_plan(session, plan_id)
-        if not _is_buyable(plan):
-            if callback.message is not None:
-                await callback.message.edit_text(t("plan_gone", lang), reply_markup=back_to_menu_keyboard(lang))
-            await callback.answer()
-            return
-        amount, _ = await quote_amount(session, plan)
-        category = plan.category
-
-    try:
-        report = await check_payability(amount)
-    except PaymentProviderNotConfiguredError:
-        if callback.message is not None:
-            await callback.message.edit_text(t("payment_coming_soon", lang), reply_markup=back_to_menu_keyboard(lang))
-        await callback.answer()
-        return
-
-    await render_payability(
-        callback,
-        report,
-        amount,
-        lang,
-        pay_prefix=f"buy:pay:{plan_id}",
-        back_to_summary_cb=f"buy:plan:{plan_id}",
-        back_to_plans_cb=f"buy:category:{category}",
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("buy:pay:"))
-async def buy_pay_cb(callback: CallbackQuery, lang: str) -> None:
-    parts = callback.data.split(":")
-    if len(parts) < 4:
-        await callback.answer()
-        return
-    try:
-        plan_id = int(parts[2])
-    except ValueError:
-        await callback.answer()
-        return
-    code = parts[3]
     telegram_id = callback.from_user.id
-
     async with async_session_maker() as session:
         plan = await get_plan(session, plan_id)
         if not _is_buyable(plan):
             if callback.message is not None:
                 await callback.message.edit_text(t("plan_gone", lang), reply_markup=back_to_menu_keyboard(lang))
-            await callback.answer()
-            return
-        amount, _ = await quote_amount(session, plan)
-        category = plan.category
-
-        try:
-            report = await check_payability(amount)
-        except PaymentProviderNotConfiguredError:
-            if callback.message is not None:
-                await callback.message.edit_text(
-                    t("payment_coming_soon", lang), reply_markup=back_to_menu_keyboard(lang)
-                )
-            await callback.answer()
-            return
-
-        # A stale keyboard, a coin dropped from Settings, or a minimum
-        # that moved since the chooser rendered: re-offer whatever is
-        # payable now rather than invoicing something that can't be paid.
-        currency = find_currency(code)
-        if currency is None or currency.code not in {c.code for c in report.payable}:
-            await render_payability(
-                callback,
-                report,
-                amount,
-                lang,
-                pay_prefix=f"buy:pay:{plan_id}",
-                back_to_summary_cb=f"buy:plan:{plan_id}",
-                back_to_plans_cb=f"buy:category:{category}",
-                notice=t("payment_currency_changed", lang),
-            )
             await callback.answer()
             return
 
         try:
             payment = await create_crypto_payment(
-                session,
-                telegram_id=telegram_id,
-                purpose="purchase",
-                plan=plan,
-                vpn_user=None,
-                pay_currency=currency.code,
+                session, telegram_id=telegram_id, purpose="purchase", plan=plan, vpn_user=None,
             )
-        except PaymentBelowMinimumError:
-            # NOWPayments disagreed with our cached minimum. Drop that
-            # coin's entry so the next lookup re-fetches, then let the
-            # buyer choose again instead of dead-ending them.
-            logger.warning("NOWPayments rejected %s as below minimum for plan %s", currency.code, plan_id)
-            await invalidate(currency.code)
-            refreshed = await check_payability(amount)
-            await render_payability(
-                callback,
-                refreshed,
-                amount,
-                lang,
-                pay_prefix=f"buy:pay:{plan_id}",
-                back_to_summary_cb=f"buy:plan:{plan_id}",
-                back_to_plans_cb=f"buy:category:{category}",
-                notice=t("payment_currency_changed", lang),
-            )
-            await callback.answer()
-            return
         except PaymentProviderNotConfiguredError:
             if callback.message is not None:
                 await callback.message.edit_text(
@@ -239,10 +137,8 @@ async def buy_pay_cb(callback: CallbackQuery, lang: str) -> None:
                 )
             await callback.answer()
             return
-        except NowPaymentsError:
-            logger.error(
-                "NOWPayments invoice creation failed for plan %s in %s", plan_id, currency.code, exc_info=True
-            )
+        except PlisioError:
+            logger.error("Plisio invoice creation failed for plan %s", plan_id, exc_info=True)
             if callback.message is not None:
                 await callback.message.edit_text(
                     t("payment_unavailable", lang), reply_markup=back_to_menu_keyboard(lang)

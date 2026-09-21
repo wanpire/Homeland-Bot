@@ -1,64 +1,42 @@
 from __future__ import annotations
 
-import json
 from decimal import Decimal
 
-from app.config import get_settings
-from app.services.payments import nowpayments
-from app.services.payments.base import PayabilityReport, PaymentProvider, WebhookEvent
-from app.services.payments.currencies import PayCurrency
-from app.services.payments.minimums import get_minimums
-from app.services.payments.nowpayments import PaymentProviderNotConfiguredError
+from app.services.payments import plisio
+from app.services.payments.base import PaymentProvider, WebhookEvent
 
 
 class CryptoProvider(PaymentProvider):
-    async def payable_currencies(self, amount_usd: Decimal) -> PayabilityReport:
-        """A coin is payable when this amount clears its current minimum.
-        A stale minimum still counts - it is a real NOWPayments number,
-        only older than the refresh window; only a coin we have no number
-        for at all lands in `unknown`."""
-        # Checked up front rather than left to the per-coin lookups:
-        # those record a missing key as "unknown", which the bot renders
-        # as "we couldn't reach the provider". An unconfigured gateway is
-        # a different thing entirely and must surface as "coming soon".
-        if not get_settings().nowpayments_api_key:
-            raise PaymentProviderNotConfiguredError("NOWPAYMENTS_API_KEY is not set")
+    """Plisio-backed crypto payments. The buyer chooses their coin on
+    Plisio's own invoice page (see plisio.create_invoice), so nothing
+    here needs to know about individual coins or their minimums."""
 
-        payable: list[PayCurrency] = []
-        too_low: list[tuple[PayCurrency, Decimal]] = []
-        unknown: list[PayCurrency] = []
-        for minimum in await get_minimums():
-            if minimum.min_usd is None:
-                unknown.append(minimum.currency)
-            elif amount_usd >= minimum.min_usd:
-                payable.append(minimum.currency)
-            else:
-                too_low.append((minimum.currency, minimum.min_usd))
-        return PayabilityReport(payable=payable, too_low=too_low, unknown=unknown)
-
-    async def create_invoice(
-        self, *, order_id: str, amount_usd: Decimal, description: str, pay_currency: str | None = None
-    ) -> tuple[str, str]:
-        return await nowpayments.create_invoice(
-            order_id=order_id, amount=amount_usd, description=description, pay_currency=pay_currency
-        )
+    async def create_invoice(self, *, order_id: str, amount_usd: Decimal, description: str) -> tuple[str, str]:
+        return await plisio.create_invoice(order_id=order_id, amount=amount_usd, description=description)
 
     def verify_webhook(self, raw_body: bytes, signature: str) -> WebhookEvent | None:
-        settings = get_settings()
-        if not nowpayments.verify_ipn_signature(raw_body, signature, settings.nowpayments_ipn_secret):
+        """`signature` is accepted for interface compatibility and
+        deliberately unused: Plisio carries its verify_hash INSIDE the
+        body, not in a header (unlike NOWPayments' x-nowpayments-sig)."""
+        payload = plisio.verify_callback(raw_body)
+        if payload is None:
             return None
+
+        order_id = payload.get("order_number")
+        txn_id = payload.get("txn_id")
+        status = payload.get("status")
+        if not order_id or not txn_id or not status:
+            return None
+
+        amount = payload.get("amount")
         try:
-            data = json.loads(raw_body)
-        except json.JSONDecodeError:
-            return None
-        order_id = data.get("order_id")
-        payment_id = data.get("payment_id") or data.get("id")
-        if not order_id or not payment_id:
-            return None
-        paid = data.get("actually_paid")
+            paid_amount = Decimal(str(amount)) if amount not in (None, "") else None
+        except (ArithmeticError, ValueError):
+            paid_amount = None
+
         return WebhookEvent(
-            provider_payment_id=str(payment_id),
+            provider_payment_id=str(txn_id),
             order_id=str(order_id),
-            raw_status=data.get("payment_status", ""),
-            paid_amount=Decimal(str(paid)) if paid is not None else None,
+            raw_status=str(status),
+            paid_amount=paid_amount,
         )
