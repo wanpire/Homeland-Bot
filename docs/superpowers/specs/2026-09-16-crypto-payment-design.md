@@ -1,5 +1,8 @@
 # Crypto Payment (NOWPayments) — Design Spec
 
+> **Superseded 2026-09-22** by `2026-09-22-plisio-migration-design.md`.
+> Kept for the record of why the NOWPayments design looked like this.
+
 Date: 2026-09-16
 Status: proposed
 Parent spec: `docs/superpowers/specs/2026-09-14-homeland-bot-design.md` §6

@@ -1,5 +1,8 @@
 # Crypto Payability (per-coin minimum check) — Design Spec
 
+> **Superseded 2026-09-22** by `2026-09-22-plisio-migration-design.md`.
+> Kept for the record of why the NOWPayments design looked like this.
+
 Date: 2026-09-21
 Status: approved (design reviewed in chat)
 Parent spec: `docs/superpowers/specs/2026-09-16-crypto-payment-design.md`
