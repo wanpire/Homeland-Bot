@@ -10,7 +10,6 @@ Reference: https://documenter.getpostman.com/view/7907941/S1a32n38
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
@@ -25,12 +24,6 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.nowpayments.io/v1"
 
-# The low-fee coins Homeland's NOWPayments dashboard is configured to
-# accept (a manual, one-time dashboard setting - not something this code
-# controls). Confirmed live against the real API on 2026-09-18: these are
-# the exact NOWPayments currency codes - note "usdtbsc" for BEP20, NOT
-# "usdtbep20" (that code doesn't exist on this account and 404s).
-_MIN_AMOUNT_CURRENCIES: tuple[str, ...] = ("usdttrc20", "usdtbsc", "trx", "ltc")
 
 
 class NowPaymentsError(Exception):
@@ -44,22 +37,31 @@ class PaymentProviderNotConfiguredError(Exception):
 
 
 class PaymentBelowMinimumError(Exception):
-    """Raised by create_invoice when the amount is below every accepted
-    coin's minimum payable amount - see check_minimum_amount below."""
+    """Raised when NOWPayments rejects an amount as below a coin's
+    minimum payable amount. The coin chooser
+    (app/services/payments/minimums.py) normally prevents this; when a
+    minimum moves inside the cache window it still happens, and the
+    caller recovers by invalidating that coin and re-offering the
+    chooser rather than dead-ending the buyer."""
 
 
-async def get_min_amount(*, currency_from: str, currency_to: str = "usd") -> Decimal:
-    """The minimum payable amount for currency_from, expressed in
-    currency_to via NOWPayments' own "fiat_equivalent" field - NOT the
-    "min_amount" field, which is denominated in currency_from's own
-    units (e.g. "0.21" for LTC), not USD. Confirmed against the real
-    API on 2026-09-18."""
+async def get_min_amount(*, currency_from: str) -> Decimal:
+    """The minimum payable amount for currency_from in USD, via
+    NOWPayments' own "fiat_equivalent" field - NOT the "min_amount"
+    field, which is denominated in currency_from's own units (e.g.
+    "0.21" for LTC), not USD. Confirmed against the real API on
+    2026-09-18.
+
+    currency_to is deliberately omitted: the API docs state NOWPayments
+    then calculates the minimum against the outcome currency configured
+    in Payment Settings (Homeland's USDT TRC-20 wallet), which is the
+    pair an invoice actually settles on."""
     settings = get_settings()
     if not settings.nowpayments_api_key:
         raise PaymentProviderNotConfiguredError("NOWPAYMENTS_API_KEY is not set")
 
     headers = {"x-api-key": settings.nowpayments_api_key}
-    params = {"currency_from": currency_from, "currency_to": currency_to, "fiat_equivalent": currency_to}
+    params = {"currency_from": currency_from, "fiat_equivalent": "usd"}
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -82,29 +84,6 @@ async def get_min_amount(*, currency_from: str, currency_to: str = "usd") -> Dec
         return Decimal(str(fiat_equivalent))
     except InvalidOperation as exc:
         raise NowPaymentsError(f"NOWPayments min-amount response had a non-numeric fiat_equivalent: {data!r}") from exc
-
-
-async def check_minimum_amount(amount_usd: Decimal) -> None:
-    """Raises PaymentBelowMinimumError only when amount_usd is
-    confirmed below the minimum for EVERY accepted coin - if even one
-    coin's minimum is unknown (a transient NOWPayments error) or clears
-    the bar, this passes silently. Fail-open on lookup errors rather
-    than fail-closed: an outage on this one endpoint must never block
-    a purchase that create_invoice itself could still complete."""
-
-    async def _min_or_none(currency: str) -> Decimal | None:
-        try:
-            return await get_min_amount(currency_from=currency)
-        except NowPaymentsError:
-            logger.warning("NOWPayments min-amount lookup failed for %s", currency, exc_info=True)
-            return None
-
-    results = await asyncio.gather(*(_min_or_none(currency) for currency in _MIN_AMOUNT_CURRENCIES))
-    known_minimums = [minimum for minimum in results if minimum is not None]
-    if known_minimums and all(amount_usd < minimum for minimum in known_minimums):
-        raise PaymentBelowMinimumError(
-            f"${amount_usd} is below every accepted coin's minimum (lowest known: ${min(known_minimums)})"
-        )
 
 
 async def validate_payout_address(*, address: str, currency: str) -> tuple[bool, str | None]:
@@ -142,15 +121,19 @@ async def validate_payout_address(*, address: str, currency: str) -> tuple[bool,
     raise NowPaymentsError(f"NOWPayments address validation failed: {response.status_code} {response.text}")
 
 
-async def create_invoice(*, order_id: str, amount: Decimal, description: str) -> tuple[str, str]:
+async def create_invoice(
+    *, order_id: str, amount: Decimal, description: str, pay_currency: str | None = None
+) -> tuple[str, str]:
     """Returns (invoice_url, payment_id) - payment_id is NOWPayments'
     own id for this invoice, stored on Payment.provider_payment_id for
-    IPN lookup."""
+    IPN lookup.
+
+    pay_currency locks the hosted payment page to one coin, so a buyer
+    can no longer pick a coin whose minimum exceeds the price and
+    dead-end there; the caller picked it from a PayabilityReport."""
     settings = get_settings()
     if not settings.nowpayments_api_key:
         raise PaymentProviderNotConfiguredError("NOWPAYMENTS_API_KEY is not set")
-
-    await check_minimum_amount(amount)
 
     payload: dict[str, str] = {
         "price_amount": str(amount),
@@ -158,6 +141,8 @@ async def create_invoice(*, order_id: str, amount: Decimal, description: str) ->
         "order_id": order_id,
         "order_description": description,
     }
+    if pay_currency:
+        payload["pay_currency"] = pay_currency
     if settings.nowpayments_ipn_callback_url:
         payload["ipn_callback_url"] = settings.nowpayments_ipn_callback_url
     if settings.bot_username:
@@ -173,6 +158,14 @@ async def create_invoice(*, order_id: str, amount: Decimal, description: str) ->
         raise NowPaymentsError(f"NOWPayments request failed: {exc}") from exc
 
     if response.status_code >= 400:
+        # A coin's minimum can move between our cached lookup and this
+        # call. That specific rejection is recoverable (drop the cached
+        # value, re-offer the chooser), so it gets its own exception
+        # type instead of a generic API error.
+        if response.status_code == 400 and "min" in response.text.lower():
+            raise PaymentBelowMinimumError(
+                f"NOWPayments rejected {amount} USD in {pay_currency or 'any coin'} as below minimum: {response.text}"
+            )
         raise NowPaymentsError(f"NOWPayments invoice creation failed: {response.status_code} {response.text}")
 
     try:
