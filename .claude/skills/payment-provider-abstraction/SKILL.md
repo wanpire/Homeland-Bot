@@ -45,8 +45,14 @@ from `GET /v1/min-amount` at runtime via
   price against a number in handler code.
 - `min_amount` and `fiat_equivalent` are NOT interchangeable:
   `min_amount` is in the coin's own units, `fiat_equivalent` is the USD
-  figure. `get_min_amount` returns the latter and omits `currency_to`, so
-  NOWPayments computes against the dashboard's outcome wallet.
+  figure. `get_min_amount` returns the latter.
+- `currency_to` must ALWAYS be sent, from
+  `Settings.nowpayments_settlement_currency`. The API docs say omitting it
+  falls back to the dashboard's outcome wallet; verified live on
+  2026-09-21, it does not - the response comes back with
+  `currency_to: "false"` and prices each coin against itself, reporting
+  TRX at $0.25 instead of its real $12.31. That would offer TRX for a $5
+  plan it cannot pay.
 - Any new checkout path must price from `service.quote_amount(session,
   plan)`, the same function the chooser uses. Pricing the chooser and the
   invoice separately reintroduces the dead end this design removed.
@@ -71,12 +77,22 @@ because the per-coin lookups would otherwise record a missing key as
 ## Invoices are locked to one coin
 
 `create_invoice` passes `pay_currency`, so the hosted page cannot offer a
-coin whose minimum exceeds the price. A minimum can still move inside the
-cache window: NOWPayments then returns a 400 whose body mentions "min",
-which `nowpayments.create_invoice` raises as `PaymentBelowMinimumError`
-rather than a generic error. Callers recover by calling
-`minimums.invalidate(code)` and re-rendering the chooser. Never let that
-exception reach the buyer as a dead end.
+coin whose minimum exceeds the price.
+
+**NOWPayments will not catch a mistake here.** Verified live on
+2026-09-21, `POST /v1/invoice` happily returns 200 for an amount below
+the locked coin's minimum ($3.00 in TRX against a $12.31 minimum); the
+buyer only finds out on the payment page. The payability pre-check is the
+only protection, so never skip it, never widen the cache window
+casually, and never create an invoice from a price the chooser did not
+approve.
+
+If NOWPayments ever does reject one - the `/v1/payment` endpoint returns
+`AMOUNT_MINIMAL_ERROR` today, and invoice behaviour could change - a 400
+whose body mentions "min" is raised as `PaymentBelowMinimumError` rather
+than a generic error. Callers recover by calling
+`minimums.invalidate(code)` and re-rendering the chooser, so that
+exception never reaches the buyer as a dead end.
 
 ## Rules that predate this feature and still hold
 

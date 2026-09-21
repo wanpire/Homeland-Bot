@@ -1,0 +1,671 @@
+<title>Homeland Bilingual Copy Review</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --surface-2: #ecedf2;
+    --ink: #1b2430;
+    --ink-dim: #5b6472;
+    --ink-faint: #8a92a0;
+    --border: #dde1e7;
+    --accent: #0f7a78;
+    --accent-ink: #ffffff;
+    --accent-tint: #e3f1f0;
+    --placeholder: #a3540c;
+    --placeholder-bg: #f7e6d4;
+    --new-badge: #a3540c;
+    --new-badge-bg: #f7e6d4;
+    --shadow: 0 1px 2px rgba(20, 24, 30, 0.06), 0 1px 1px rgba(20, 24, 30, 0.04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181d;
+      --surface: #1b2129;
+      --surface-2: #222a33;
+      --ink: #e7eaee;
+      --ink-dim: #9aa3af;
+      --ink-faint: #6b7480;
+      --border: #2c333d;
+      --accent: #3fc0b6;
+      --accent-ink: #0b1512;
+      --accent-tint: #17302e;
+      --placeholder: #e2a165;
+      --placeholder-bg: #33271a;
+      --new-badge: #e2a165;
+      --new-badge-bg: #33271a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181d;
+    --surface: #1b2129;
+    --surface-2: #222a33;
+    --ink: #e7eaee;
+    --ink-dim: #9aa3af;
+    --ink-faint: #6b7480;
+    --border: #2c333d;
+    --accent: #3fc0b6;
+    --accent-ink: #0b1512;
+    --accent-tint: #17302e;
+    --placeholder: #e2a165;
+    --placeholder-bg: #33271a;
+    --new-badge: #e2a165;
+    --new-badge-bg: #33271a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Vazirmatn', 'IBM Plex Mono', sans-serif;
+    padding-inline: max(16px, calc((100vw - 920px) / 2));
+    padding-block: 40px 64px;
+  }
+
+  .wrap { max-width: 920px; margin: 0 auto; }
+
+  header.page-head {
+    margin-bottom: 32px;
+  }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-family: 'Vazirmatn', sans-serif;
+    font-weight: 900;
+    font-size: clamp(28px, 4.4vw, 38px);
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+
+  .dek {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--ink-dim);
+    max-width: 62ch;
+    margin: 0 0 20px;
+  }
+
+  .dek code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9em;
+    background: var(--surface-2);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .stat b {
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 15px;
+    color: var(--accent);
+  }
+
+  .stat span {
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+
+  .controls {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg);
+    padding-block: 14px 10px;
+    margin-bottom: 6px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  #search {
+    flex: 1 1 220px;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  #search:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  #flagged-toggle {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-dim);
+    cursor: pointer;
+  }
+  #flagged-toggle[aria-pressed="true"] {
+    background: var(--accent-tint);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .module {
+    margin-top: 30px;
+  }
+
+  .module-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 12px;
+  }
+
+  .module-head h2 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .module-head .src {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+
+  .module-head .count {
+    margin-inline-start: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+
+  .row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow);
+  }
+  .row.is-hidden { display: none; }
+
+  .row-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .key {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-dim);
+    background: var(--surface-2);
+    padding: 3px 8px;
+    border-radius: 5px;
+    word-break: break-all;
+  }
+
+  .new-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--new-badge);
+    background: var(--new-badge-bg);
+    padding: 2px 7px;
+    border-radius: 999px;
+  }
+
+  .flag-btn {
+    margin-inline-start: auto;
+    flex-shrink: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-faint);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .flag-btn:hover { border-color: var(--ink-dim); color: var(--ink-dim); }
+  .flag-btn[aria-pressed="true"] {
+    background: var(--placeholder-bg);
+    border-color: var(--placeholder);
+    color: var(--placeholder);
+  }
+
+  .langs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 620px) {
+    .langs { grid-template-columns: 1fr; }
+  }
+
+  .lang-block { min-width: 0; }
+
+  .lang-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 4px;
+  }
+
+  .lang-text {
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: var(--ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .lang-text.fa { direction: rtl; text-align: right; }
+  .lang-text.en { direction: ltr; text-align: left; }
+
+  .lang-text b { font-weight: 700; }
+  .lang-text code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.88em;
+    background: var(--surface-2);
+    padding: 0.06em 0.35em;
+    border-radius: 4px;
+    direction: ltr;
+    unicode-bidi: embed;
+    display: inline-block;
+  }
+  .lang-text s { opacity: 0.6; }
+
+  .ph {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85em;
+    color: var(--placeholder);
+    background: var(--placeholder-bg);
+    padding: 0.05em 0.3em;
+    border-radius: 4px;
+    direction: ltr;
+    unicode-bidi: isolate;
+    display: inline-block;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: var(--ink-dim);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  #empty-state {
+    display: none;
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--ink-faint);
+    font-size: 14px;
+  }
+
+  footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+
+<div class="wrap">
+  <header class="page-head">
+    <p class="eyebrow">app/i18n/texts.py &middot; production copy review</p>
+    <h1>Homeland's bilingual customer copy, string by string</h1>
+    <p class="dek">
+      Every key in <code>TEXTS["en"]</code> / <code>TEXTS["fa"]</code>, grouped exactly as the
+      source file groups them. <span class="ph" style="cursor:default;">{like this}</span> marks a
+      value the code fills in at send time &mdash; check that both languages place it correctly, not
+      just that it's present. Flag anything you want changed; flags live only in this browser.
+    </p>
+    <div class="meta-row">
+      <div class="stat"><b id="stat-total">85</b><span>keys</span></div>
+      <div class="stat"><b id="stat-modules">10</b><span>source modules</span></div>
+      <div class="stat"><b>2</b><span>languages</span></div>
+    </div>
+  </header>
+
+  <div class="controls">
+    <input id="search" type="search" placeholder="Search a key, an English phrase, or Persian text&hellip;" autocomplete="off">
+    <button id="flagged-toggle" type="button" aria-pressed="false">🚩 Flagged only (<span id="flag-count">0</span>)</button>
+  </div>
+
+  <div id="modules"></div>
+  <p id="empty-state">No strings match &ldquo;<span id="empty-query"></span>&rdquo;.</p>
+
+  <footer>
+    <span>Rendered live from the shipped <code style="font-family:'IBM Plex Mono',monospace;">app/i18n/texts.py</code> &mdash; not a copy that can drift.</span>
+    <span id="flag-summary"></span>
+  </footer>
+</div>
+
+<script>
+  // -----------------------------------------------------------------
+  // Data: transcribed verbatim from app/i18n/texts.py. Grouping and
+  // order match that file's own section comments.
+  // -----------------------------------------------------------------
+  const MODULES = [
+    {
+      name: "Main menu & language switching",
+      src: "app/bot/keyboards/menus.py, app/bot/handlers/users.py",
+      rows: [
+        ["welcome", "👋 Welcome to Homeland VPN.\n\nChoose an option below:", "👋 به Homeland VPN خوش آمدید.\n\nیکی از گزینه‌های زیر را انتخاب کنید:"],
+        ["menu_buy", "🔑 Buy Subscription", "🔑 خرید اشتراک"],
+        ["menu_renew", "♻️ Renew Service", "♻️ تمدید سرویس"],
+        ["menu_trial", "🎁 Free Trial", "🎁 تست رایگان"],
+        ["menu_myservices", "🛍 My Services", "🛍 سرویس‌های من"],
+        ["menu_tutorials", "📚 Tutorials", "📚 آموزش‌ها"],
+        ["menu_support", "☎️ Support", "☎️ پشتیبانی"],
+        ["menu_language", "🌐 Language", "🌐 زبان"],
+        ["placeholder_coming_soon", "🚧 This feature is coming soon.", "🚧 این قابلیت به‌زودی اضافه می‌شود."],
+        ["support_heading", "☎️ <b>Support</b>\n\nTap the button below to contact support.", "☎️ <b>پشتیبانی</b>\n\nبرای تماس با پشتیبانی روی دکمه زیر بزنید."],
+        ["support_not_configured", "☎️ Support contact isn't configured yet. Please check back soon.", "☎️ اطلاعات تماس پشتیبانی هنوز تنظیم نشده. لطفاً بعداً دوباره سر بزنید."],
+        ["contact_support_button", "☎️ Contact Support", "☎️ تماس با پشتیبانی"],
+        ["back_to_menu", "⬅️ Back to Menu", "⬅️ بازگشت به منو"],
+        ["language_updated", "✅ Language updated.", "✅ زبان با موفقیت تغییر کرد."],
+      ],
+    },
+    {
+      name: "Buy Subscription",
+      src: "app/bot/handlers/buy.py, app/bot/keyboards/buy.py",
+      rows: [
+        ["buy_category_heading", "🔑 <b>Buy Subscription</b>\n\nPick a category:", "🔑 <b>خرید اشتراک</b>\n\nیک دسته را انتخاب کنید:"],
+        ["buy_pick_plan", "Pick a plan:", "یک پلن را انتخاب کنید:"],
+        ["category_scroll", "📜 Scroll", "📜 اسکرول"],
+        ["category_stream", "🌊 Stream", "🌊 استریم"],
+        ["category_trial", "Trial", "تست رایگان"],
+        ["plan_gone", "⚠️ That plan no longer exists. Please pick another.", "⚠️ این پلن دیگر وجود ندارد. لطفاً پلن دیگری انتخاب کنید."],
+        ["payment_coming_soon", "🚧 Payment methods (Stripe, crypto) are coming soon — we'll let you know the moment they're live. No charge has been made and no account was created.", "🚧 روش‌های پرداخت (استرایپ، ارز دیجیتال) به‌زودی فعال می‌شوند — به محض فعال شدن به شما اطلاع می‌دهیم. هیچ مبلغی کسر نشده و حسابی ساخته نشده است."],
+        ["payment_link_heading", "💳 <b>Complete your payment</b>\n\nTap below to open the payment page — you'll be able to choose your coin and network there. We'll confirm automatically once payment is received; no need to come back and check.", "💳 <b>تکمیل پرداخت</b>\n\nبرای باز کردن صفحه پرداخت روی دکمه زیر بزنید — می‌توانید ارز و شبکه دلخواه خود را همان‌جا انتخاب کنید. پس از دریافت پرداخت به‌صورت خودکار تأیید می‌شود؛ نیازی به بازگشت و بررسی دستی نیست."],
+        ["payment_unavailable", "⚠️ We couldn't reach the payment provider right now. Please try again in a few minutes, or contact support if this keeps happening.", "⚠️ در حال حاضر امکان اتصال به درگاه پرداخت وجود ندارد. لطفاً چند دقیقه دیگر دوباره امتحان کنید یا در صورت تکرار با پشتیبانی تماس بگیرید."],
+        ["pay_with_crypto_button", "₿ Pay with Crypto", "₿ پرداخت با ارز دیجیتال"],
+        ["open_payment_page_button", "🔗 Open Payment Page", "🔗 باز کردن صفحه پرداخت"],
+        ["back_button", "⬅️ Back", "⬅️ بازگشت"],
+        ["price_duration", "Duration: {days} days", "مدت: {days} روز"],
+        ["price_data", "Data: {cap}", "حجم: {cap}"],
+        ["price_line", "Price: {price}", "قیمت: {price}"],
+        ["price_line_discounted", "Price: <s>{original}</s> {discounted} (-{percent}%)", "قیمت: <s>{original}</s> {discounted} (-{percent}٪)"],
+      ],
+    },
+    {
+      name: "Renew Service",
+      src: "app/bot/handlers/renew.py, app/bot/keyboards/renew.py",
+      rows: [
+        ["renew_list_heading", "♻️ <b>Renew Service</b>\n\nWhich service do you want to renew?", "♻️ <b>تمدید سرویس</b>\n\nکدام سرویس را می‌خواهید تمدید کنید؟"],
+        ["renew_empty", "♻️ <b>Renew Service</b>\n\nYou don't have any services to renew yet.", "♻️ <b>تمدید سرویس</b>\n\nهنوز سرویسی برای تمدید ندارید."],
+        ["renew_not_found", "⚠️ Service not found.", "⚠️ سرویس یافت نشد."],
+        ["renew_pick_category", "♻️ <b>Renew {name}</b>\n\nPick a category:", "♻️ <b>تمدید {name}</b>\n\nیک دسته را انتخاب کنید:"],
+        ["renew_pick_plan", "♻️ <b>Renew {name}</b>\n\nPick a plan:", "♻️ <b>تمدید {name}</b>\n\nیک پلن را انتخاب کنید:"],
+        ["renew_summary_heading", "♻️ <b>Renew {current} → {new} ({category})</b>", "♻️ <b>تمدید {current} → {new} ({category})</b>"],
+        ["payment_coming_soon_renew", "🚧 Payment methods (Stripe, crypto) are coming soon — we'll let you know the moment they're live. No charge has been made and your service has not been changed.", "🚧 روش‌های پرداخت (استرایپ، ارز دیجیتال) به‌زودی فعال می‌شوند — به محض فعال شدن به شما اطلاع می‌دهیم. هیچ مبلغی کسر نشده و سرویس شما تغییری نکرده است."],
+      ],
+    },
+    {
+      name: "My Services",
+      src: "app/bot/handlers/myservices.py, app/bot/keyboards/myservices.py",
+      rows: [
+        ["myservices_heading", "🛍 <b>My Services</b>", "🛍 <b>سرویس‌های من</b>"],
+        ["myservices_empty", "🛍 <b>My Services</b>\n\nYou don't have any services yet.", "🛍 <b>سرویس‌های من</b>\n\nهنوز سرویسی ندارید."],
+        ["myservices_not_found", "⚠️ Service not found.", "⚠️ سرویس یافت نشد."],
+        ["status_active", "✅ Active", "✅ فعال"],
+        ["status_expired", "⛔ Expired", "⛔ منقضی‌شده"],
+        ["status_pending", "⏳ Pending", "⏳ در انتظار"],
+        ["status_unknown", "⚠️ Unknown", "⚠️ نامشخص"],
+        ["status_line_active", "Status: ✅ Active until {date} UTC", "وضعیت: ✅ فعال تا {date} UTC"],
+        ["status_line_expired", "Status: ⛔ Expired on {date} UTC", "وضعیت: ⛔ منقضی‌شده در {date} UTC"],
+        ["status_line_pending", "Status: ⏳ Not yet activated — validity starts on first connection.", "وضعیت: ⏳ هنوز فعال نشده — اعتبار از اولین اتصال شروع می‌شود."],
+        ["status_line_unknown", "Status: ⚠️ Couldn't check status right now.", "وضعیت: ⚠️ در حال حاضر امکان بررسی وضعیت وجود ندارد."],
+        ["username_label", "Username", "نام کاربری", true],
+        ["password_label", "Password", "رمز عبور", true],
+        ["password_unavailable", "Password: unavailable — contact support", "رمز عبور: در دسترس نیست — با پشتیبانی تماس بگیرید"],
+        ["protocol_prompt", "🔌 Which protocol do you want to use?", "🔌 کدام پروتکل را می‌خواهید استفاده کنید؟"],
+        ["platform_prompt", "📱 Which device do you want to set it up on?", "📱 روی کدام دستگاه می‌خواهید تنظیم کنید؟"],
+        ["resent_confirmation", "✅ Sent — check the message above.", "✅ ارسال شد — پیام بالا را بررسی کنید."],
+        ["resend_blocked", "⚠️ See the message above for details.", "⚠️ برای جزئیات پیام بالا را بررسی کنید."],
+        ["resend_setup_button", "🔄 Resend Setup", "🔄 ارسال مجدد تنظیمات"],
+        ["back_to_list_button", "⬅️ Back to List", "⬅️ بازگشت به لیست"],
+        ["back_to_service_button", "⬅️ Back to Service", "⬅️ بازگشت به سرویس"],
+      ],
+    },
+    {
+      name: "Free Trial",
+      src: "app/bot/handlers/trial.py, app/bot/keyboards/trial.py",
+      rows: [
+        ["trial_already_used", "🎁 You've already used your free trial.", "🎁 شما قبلاً از تست رایگان خود استفاده کرده‌اید."],
+        ["trial_confirm_prompt", "🎁 <b>Free Trial</b> — 24 hours, 1GB of data.\n\nStart your trial?", "🎁 <b>تست رایگان</b> — ۲۴ ساعت، ۱ گیگابایت حجم.\n\nتست رایگان را شروع می‌کنید؟"],
+        ["trial_create_failed", "⚠️ Couldn't create your trial right now. Please try again shortly.", "⚠️ در حال حاضر امکان ایجاد تست رایگان وجود ندارد. لطفاً کمی بعد دوباره امتحان کنید."],
+        ["trial_credentials_unavailable", "⚠️ Your trial account was created, but we couldn't retrieve your credentials right now. Please contact support and they'll send them to you.", "⚠️ حساب تست رایگان شما ساخته شد، اما در حال حاضر امکان دریافت اطلاعات ورود وجود ندارد. با پشتیبانی تماس بگیرید تا برایتان ارسال شود."],
+        ["trial_ready", "🎁 <b>Your trial is ready.</b>\n\nUsername: <code>{username}</code>\nPassword: <code>{password}</code>\n\n⏱ Valid for 24 hours from first connection.", "🎁 <b>تست رایگان شما آماده است.</b>\n\nنام کاربری: <code>{username}</code>\nرمز عبور: <code>{password}</code>\n\n⏱ به مدت ۲۴ ساعت از اولین اتصال معتبر است."],
+        ["confirm_button", "✅ Confirm", "✅ تأیید"],
+      ],
+    },
+    {
+      name: "Tutorial delivery",
+      src: "app/services/tutorial_delivery.py",
+      rows: [
+        ["android_l2tp_unsupported", "⚠️ L2TP isn't supported on Android 12 and newer (Google removed the built-in L2TP/IPsec client). Please use OpenVPN instead, or contact support for help.", "⚠️ پروتکل L2TP روی اندروید ۱۲ به بعد پشتیبانی نمی‌شود (گوگل کلاینت داخلی L2TP/IPsec را حذف کرده است). لطفاً از OpenVPN استفاده کنید یا برای راهنمایی با پشتیبانی تماس بگیرید."],
+        ["guide_not_ready", "📚 This guide is not ready yet — please contact support.", "📚 این راهنما هنوز آماده نیست — لطفاً با پشتیبانی تماس بگیرید."],
+        ["connection_profile_prefix", "📡 Connection profile ({name})", "📡 پروفایل اتصال ({name})"],
+        ["download_link_prefix", "📥 App download link:", "📥 لینک دانلود اپلیکیشن:"],
+        ["download_openvpn_links_heading", "📥 Download OpenVPN Connect:", "📥 دانلود OpenVPN Connect:"],
+        ["any_platform_label", "Any platform:", "همه دستگاه‌ها:"],
+      ],
+    },
+    {
+      name: "Payment webhook (NOWPayments)",
+      src: "app/webhook.py",
+      rows: [
+        ["payment_confirmed", "🎉 Payment confirmed! Your service (<code>{username}</code>) has been {action}.", "🎉 پرداخت تأیید شد! سرویس شما (<code>{username}</code>) {action} شد."],
+        ["action_activated", "activated", "فعال"],
+        ["action_renewed", "renewed", "تمدید"],
+        ["partial_payment", "⚠️ We received a partial payment — it wasn't quite enough to complete your order, so your service hasn't been activated yet. Tap below to finish paying the remaining balance; the page will show exactly how much is left.", "⚠️ پرداخت جزئی دریافت شد — مبلغ کافی برای تکمیل سفارش نبود، بنابراین سرویس شما هنوز فعال نشده است. برای تکمیل باقی‌مانده مبلغ روی دکمه زیر بزنید؛ صفحه پرداخت مبلغ دقیق باقی‌مانده را نشان می‌دهد."],
+        ["payment_failed", "❌ This payment did not complete. You can start over any time from Buy Subscription or Renew Service.", "❌ این پرداخت تکمیل نشد. می‌توانید هر زمان از «خرید اشتراک» یا «تمدید سرویس» دوباره شروع کنید."],
+        ["activation_technical_issue", "⚠️ Your payment was received, but we hit a technical issue activating your service. Please contact support with your payment date and amount.", "⚠️ پرداخت شما دریافت شد، اما در فعال‌سازی سرویس با یک مشکل فنی مواجه شدیم. لطفاً همراه با تاریخ و مبلغ پرداخت با پشتیبانی تماس بگیرید."],
+        ["finish_payment_button", "💰 Finish Payment", "💰 تکمیل پرداخت"],
+      ],
+    },
+    {
+      name: "Error handling",
+      src: "app/bot/error_handlers.py",
+      rows: [
+        ["pool_busy", "⏳ The server is temporarily busy. Please try again shortly.", "⏳ سرور موقتاً شلوغ است. لطفاً کمی بعد دوباره امتحان کنید."],
+      ],
+    },
+    {
+      name: "Renewal reminders",
+      src: "app/services/reminders.py",
+      rows: [
+        ["reminder_message", "⏰ Your VPN service (<code>{username}</code>) expires in less than {days} day(s). Renew now to avoid interruption.", "⏰ اعتبار سرویس شما (<code>{username}</code>) کمتر از {days} روز دیگر تمام می‌شود. برای جلوگیری از قطعی همین حالا تمدید کنید."],
+        ["renew_now_button", "♻️ Renew Now", "♻️ تمدید کنید"],
+      ],
+    },
+    {
+      name: "Plan display names",
+      src: "app/services/catalog.py",
+      rows: [
+        ["plan_name_trial", "Trial", "تست رایگان"],
+        ["plan_name_2weeks", "2 Weeks", "۲ هفته"],
+        ["plan_name_1month", "1 Month", "۱ ماه"],
+        ["plan_name_2months", "2 Months", "۲ ماه"],
+        ["plan_name_3months", "3 Months", "۳ ماه"],
+      ],
+    },
+  ];
+
+  function highlightPlaceholders(raw) {
+    return raw.replace(/\{(\w+)\}/g, '<span class="ph">{$1}</span>');
+  }
+
+  function renderModules() {
+    const root = document.getElementById("modules");
+    let totalRows = 0;
+    MODULES.forEach((mod, mIdx) => {
+      const section = document.createElement("section");
+      section.className = "module";
+      section.dataset.module = mIdx;
+
+      const head = document.createElement("div");
+      head.className = "module-head";
+      head.innerHTML = `<h2>${mod.name}</h2><span class="src">${mod.src}</span><span class="count">${mod.rows.length} ${mod.rows.length === 1 ? "key" : "keys"}</span>`;
+      section.appendChild(head);
+
+      mod.rows.forEach((r) => {
+        const [key, en, fa, isNew] = r;
+        totalRows++;
+        const row = document.createElement("div");
+        row.className = "row";
+        row.dataset.key = key;
+        row.dataset.search = (key + " " + en + " " + fa).toLowerCase();
+
+        row.innerHTML = `
+          <div class="row-top">
+            <span class="key">${key}</span>
+            ${isNew ? '<span class="new-badge">added in final review</span>' : ""}
+            <button class="flag-btn" type="button" aria-pressed="false" data-key="${key}">🚩 Flag</button>
+          </div>
+          <div class="langs">
+            <div class="lang-block">
+              <div class="lang-label">English</div>
+              <div class="lang-text en">${highlightPlaceholders(en)}</div>
+            </div>
+            <div class="lang-block">
+              <div class="lang-label">فارسی &middot; Persian</div>
+              <div class="lang-text fa">${highlightPlaceholders(fa)}</div>
+            </div>
+          </div>`;
+        section.appendChild(row);
+      });
+
+      root.appendChild(section);
+    });
+    document.getElementById("stat-total").textContent = totalRows;
+    document.getElementById("stat-modules").textContent = MODULES.length;
+  }
+
+  renderModules();
+
+  // ---- Flagging (localStorage, per-viewer only) ----
+  const FLAG_KEY = "homeland-copy-review-flags";
+  function loadFlags() {
+    try { return new Set(JSON.parse(localStorage.getItem(FLAG_KEY) || "[]")); }
+    catch { return new Set(); }
+  }
+  function saveFlags(set) {
+    try { localStorage.setItem(FLAG_KEY, JSON.stringify([...set])); } catch {}
+  }
+  let flags = loadFlags();
+
+  function updateFlagUI() {
+    document.querySelectorAll(".flag-btn").forEach((btn) => {
+      const on = flags.has(btn.dataset.key);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      btn.textContent = on ? "🚩 Flagged" : "🚩 Flag";
+    });
+    document.getElementById("flag-count").textContent = flags.size;
+    const summary = document.getElementById("flag-summary");
+    summary.textContent = flags.size
+      ? `${flags.size} key${flags.size === 1 ? "" : "s"} flagged for a second look: ${[...flags].join(", ")}`
+      : "";
+    if (flaggedOnly) applyFilter();
+  }
+
+  document.getElementById("modules").addEventListener("click", (e) => {
+    const btn = e.target.closest(".flag-btn");
+    if (!btn) return;
+    const k = btn.dataset.key;
+    flags.has(k) ? flags.delete(k) : flags.add(k);
+    saveFlags(flags);
+    updateFlagUI();
+  });
+
+  // ---- Search + flagged-only filter ----
+  let flaggedOnly = false;
+  const searchInput = document.getElementById("search");
+  const flaggedToggle = document.getElementById("flagged-toggle");
+  const emptyState = document.getElementById("empty-state");
+  const emptyQuery = document.getElementById("empty-query");
+
+  function applyFilter() {
+    const q = searchInput.value.trim().toLowerCase();
+    let visibleTotal = 0;
+    document.querySelectorAll(".module").forEach((section) => {
+      let visibleInSection = 0;
+      section.querySelectorAll(".row").forEach((row) => {
+        const matchesSearch = !q || row.dataset.search.includes(q);
+        const matchesFlag = !flaggedOnly || flags.has(row.dataset.key);
+        const show = matchesSearch && matchesFlag;
+        row.classList.toggle("is-hidden", !show);
+        if (show) visibleInSection++;
+      });
+      section.style.display = visibleInSection ? "" : "none";
+      visibleTotal += visibleInSection;
+    });
+    emptyState.style.display = visibleTotal ? "none" : "block";
+    emptyQuery.textContent = q || (flaggedOnly ? "flagged" : "");
+  }
+
+  searchInput.addEventListener("input", applyFilter);
+  flaggedToggle.addEventListener("click", () => {
+    flaggedOnly = !flaggedOnly;
+    flaggedToggle.setAttribute("aria-pressed", String(flaggedOnly));
+    applyFilter();
+  });
+
+  updateFlagUI();
+</script>

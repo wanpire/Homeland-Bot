@@ -52,7 +52,16 @@ From the official Postman collection (`documenter.getpostman.com/view/7907941/2s
   (default `usdttrc20`, the dashboard's payout wallet).
 - `POST /v1/invoice` accepts optional `pay_currency`; "If not specified,
   can be chosen on the invoice_url". With it set, the hosted page is
-  locked to that coin.
+  locked to that coin — verified live 2026-09-21: the response echoed
+  `"pay_currency": "TRX"`.
+- **Invoice creation does NOT enforce the minimum.** Verified live
+  2026-09-21: `POST /v1/invoice` returned 200 for `price_amount: "3.00"`
+  locked to TRX, whose minimum is $12.31. The buyer would only discover
+  the problem on the hosted page. So the payability pre-check is not one
+  safety net among several — it is the only one, which is why its cache
+  freshness window is kept short (10 minutes) and why the below-minimum
+  error mapping in the client is documented as defensive rather than
+  relied upon.
 - **No rate limit is published** anywhere in the collection or the help
   center (which only says throttled accounts should contact support).
   The cache below therefore bounds calls to at most one per coin per

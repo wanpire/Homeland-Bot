@@ -166,10 +166,16 @@ async def create_invoice(
         raise NowPaymentsError(f"NOWPayments request failed: {exc}") from exc
 
     if response.status_code >= 400:
-        # A coin's minimum can move between our cached lookup and this
-        # call. That specific rejection is recoverable (drop the cached
-        # value, re-offer the chooser), so it gets its own exception
-        # type instead of a generic API error.
+        # Defensive only. Verified live on 2026-09-21: NOWPayments does
+        # NOT reject a below-minimum invoice at creation - it returned
+        # 200 for $3.00 locked to TRX, whose minimum is $12.31, and the
+        # failure would only surface to the buyer on the hosted page.
+        # The payability pre-check is therefore the ONLY thing standing
+        # between a buyer and that dead end; this branch just means that
+        # if NOWPayments ever does reject one (the /v1/payment endpoint
+        # returns AMOUNT_MINIMAL_ERROR today), we recover by dropping the
+        # cached value and re-offering the chooser instead of showing a
+        # generic error.
         if response.status_code == 400 and "min" in response.text.lower():
             raise PaymentBelowMinimumError(
                 f"NOWPayments rejected {amount} USD in {pay_currency or 'any coin'} as below minimum: {response.text}"
