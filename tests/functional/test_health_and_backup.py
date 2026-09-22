@@ -40,7 +40,7 @@ async def test_a_healthy_component_is_not_announced_on_first_sight(
 
     await health.run_health_check(bot)
 
-    assert not [text for text in _entries(fake_session) if "HEALTH" in text]
+    assert not [text for text in _entries(fake_session) if "SERVICE" in text]
 
 
 async def _false() -> bool:
@@ -62,18 +62,18 @@ async def test_a_failure_then_a_recovery_are_each_announced_once(
     monkeypatch.setattr(health, "_heartbeat_due", lambda: _false())
 
     await health.run_health_check(bot)
-    alerts = [text for text in _entries(fake_session) if "HEALTH ALERT" in text]
+    alerts = [text for text in _entries(fake_session) if "SERVICE ALERT" in text]
     assert len(alerts) == 1 and "IBSng" in alerts[0]
 
     # Unchanged: nothing new to say.
     fake_session.reset()
     await health.run_health_check(bot)
-    assert not [text for text in _entries(fake_session) if "HEALTH" in text]
+    assert not [text for text in _entries(fake_session) if "SERVICE" in text]
 
     fake_session.reset()
     state["healthy"] = True
     await health.run_health_check(bot)
-    assert [text for text in _entries(fake_session) if "HEALTH OK" in text]
+    assert [text for text in _entries(fake_session) if "SERVICE OK" in text]
 
 
 @pytest.mark.asyncio

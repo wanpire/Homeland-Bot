@@ -12,7 +12,7 @@ from typing import Any
 
 from aiogram.client.session.base import BaseSession
 from aiogram.exceptions import TelegramForbiddenError
-from aiogram.types import Chat, ChatMemberOwner, Message, User
+from aiogram.types import ForumTopic, Chat, ChatMemberOwner, Message, User
 
 
 class FakeBotSession(BaseSession):
@@ -20,6 +20,7 @@ class FakeBotSession(BaseSession):
         super().__init__()
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.blocked_chat_ids: set[int] = set()
+        self._next_thread_id = 100
         self._message_id_counter = itertools.count(1)
 
     def reset(self) -> None:
@@ -69,6 +70,16 @@ class FakeBotSession(BaseSession):
             return True
         if api_name == "deleteWebhook":
             return True
+        if api_name == "createForumTopic":
+            # Each new topic gets its own thread id, so a test can prove
+            # categories are filed separately rather than all landing in
+            # one thread.
+            self._next_thread_id += 1
+            return ForumTopic(
+                message_thread_id=self._next_thread_id,
+                name=data.get("name", "topic"),
+                icon_color=0x6FB9F0,
+            )
         if api_name == "getMe":
             return User(id=999999, is_bot=True, first_name="TestBot", username="test_bot")
 

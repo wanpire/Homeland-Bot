@@ -32,6 +32,12 @@ class EventType:
     #: The order fields are printed in. A value not listed here is never
     #: printed, so a typo at a call site cannot silently reshape an entry.
     fields: tuple[str, ...]
+    #: Which forum topic this category files under. Several event types
+    #: can share a topic (health ok and health alert both belong in the
+    #: health thread); the thread id itself is discovered at runtime,
+    #: never hardcoded - see app/services/logtopics.py.
+    topic: str = "general"
+    topic_name: str = "General"
 
 
 NEW_USER = "new_user"
@@ -40,16 +46,46 @@ RENEWAL = "renewal"
 TRIAL = "trial"
 HEALTH_OK = "health_ok"
 HEALTH_ALERT = "health_alert"
+SERVER_HEALTH = "server_health"
+SERVER_HEALTH_ALERT = "server_health_alert"
 BACKUP = "backup"
+ACCOUNTING = "accounting"
+
+#: Topic keys. Several event types share one (an ok and an alert belong
+#: in the same thread), which is why the topic is its own field.
+TOPIC_NEW_USER = "new_user"
+TOPIC_PURCHASE = "purchase"
+TOPIC_RENEWAL = "renewal"
+TOPIC_TRIAL = "trial"
+TOPIC_BACKUP = "backup"
+TOPIC_SERVER = "server_health"
+TOPIC_SERVICE = "service_health"
+TOPIC_ACCOUNTING = "accounting"
+
+_HEALTH_FIELDS = ("Component", "Detail", "Checks")
+_PAYMENT_FIELDS = ("User", "Plan", "Amount", "Provider", "Account")
 
 EVENTS: dict[str, EventType] = {
-    NEW_USER: EventType(NEW_USER, "🆕", "NEW USER", ("User", "Language")),
-    PURCHASE: EventType(PURCHASE, "💰", "PURCHASE", ("User", "Plan", "Amount", "Provider", "Account")),
-    RENEWAL: EventType(RENEWAL, "♻️", "RENEWAL", ("User", "Plan", "Amount", "Provider", "Account")),
-    TRIAL: EventType(TRIAL, "🎁", "TRIAL", ("User", "Plan", "Account")),
-    HEALTH_OK: EventType(HEALTH_OK, "💚", "HEALTH OK", ("Component", "Detail", "Checks")),
-    HEALTH_ALERT: EventType(HEALTH_ALERT, "🔴", "HEALTH ALERT", ("Component", "Detail", "Checks")),
-    BACKUP: EventType(BACKUP, "💾", "BACKUP", ("Status", "File", "Size", "Kept", "Duration", "Error")),
+    NEW_USER: EventType(NEW_USER, "🆕", "NEW USER", ("User", "Language"), TOPIC_NEW_USER, "🆕 New Users"),
+    PURCHASE: EventType(PURCHASE, "💰", "PURCHASE", _PAYMENT_FIELDS, TOPIC_PURCHASE, "💰 Purchases"),
+    RENEWAL: EventType(RENEWAL, "♻️", "RENEWAL", _PAYMENT_FIELDS, TOPIC_RENEWAL, "♻️ Renewals"),
+    TRIAL: EventType(TRIAL, "🎁", "TRIAL", ("User", "Plan", "Account"), TOPIC_TRIAL, "🎁 Trials"),
+    HEALTH_OK: EventType(HEALTH_OK, "💚", "SERVICE OK", _HEALTH_FIELDS, TOPIC_SERVICE, "🩺 Service Health"),
+    HEALTH_ALERT: EventType(HEALTH_ALERT, "🔴", "SERVICE ALERT", _HEALTH_FIELDS, TOPIC_SERVICE, "🩺 Service Health"),
+    SERVER_HEALTH: EventType(
+        SERVER_HEALTH, "🖥", "SERVER OK", ("Disk", "Memory", "Load", "Uptime"), TOPIC_SERVER, "🖥 Server Health"
+    ),
+    SERVER_HEALTH_ALERT: EventType(
+        SERVER_HEALTH_ALERT, "🟠", "SERVER ALERT", ("Disk", "Memory", "Load", "Uptime", "Detail"),
+        TOPIC_SERVER, "🖥 Server Health",
+    ),
+    BACKUP: EventType(
+        BACKUP, "💾", "BACKUP", ("Status", "File", "Size", "Kept", "Duration", "Error"), TOPIC_BACKUP, "💾 Backups"
+    ),
+    ACCOUNTING: EventType(
+        ACCOUNTING, "📊", "ACCOUNTING", ("Period", "Revenue", "Orders", "Average", "Discounts", "Providers"),
+        TOPIC_ACCOUNTING, "📊 Accounting",
+    ),
 }
 
 
@@ -87,7 +123,21 @@ async def log_event(bot: Bot, key: str, **values: object) -> None:
         return
 
     try:
-        await bot.send_message(int(chat_id), render_event(key, values))
+        target = int(chat_id)
+    except ValueError:
+        logger.error("ADMIN_LOG_CHAT_ID is not a valid chat id: %r", chat_id)
+        return
+
+    # Resolved per send rather than cached in memory: the id lives in
+    # app_config, so a topic recreated by /logtopics takes effect without
+    # a restart.
+    from app.services.logtopics import resolve_thread_id
+
+    event = EVENTS[key]
+    thread_id = await resolve_thread_id(bot, target, event.topic, event.topic_name)
+
+    try:
+        await bot.send_message(target, render_event(key, values), message_thread_id=thread_id)
     except ValueError:
         logger.error("ADMIN_LOG_CHAT_ID is not a valid chat id: %r", chat_id)
     except TelegramAPIError as exc:

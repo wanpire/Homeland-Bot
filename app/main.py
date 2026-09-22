@@ -23,7 +23,7 @@ from app.bot.middlewares.user_tracking import UserTrackingMiddleware
 from app.config import get_settings
 from app.logging_setup import install_secret_redaction
 from app.services.backup import run_backup_loop
-from app.services.health import run_health_loop
+from app.services.scheduled_reports import run_daily_accounting_loop, run_hourly_health_loop
 from app.services.payments.reconcile import run_reconcile_loop
 from app.services.reminders import run_reminder_loop
 from app.webhook import create_webhook_app
@@ -111,6 +111,7 @@ async def main() -> None:
         [
             BotCommand(command="start", description="Start / main menu"),
             BotCommand(command="admintutorials", description="Admin: upload tutorials/profiles"),
+            BotCommand(command="logtopics", description="Admin: set up the log group's topics"),
         ]
     )
     await bot.delete_webhook(drop_pending_updates=True)
@@ -127,7 +128,8 @@ async def main() -> None:
     reconcile_task = asyncio.create_task(run_reconcile_loop(bot))
     # Operational logging: health posts only on a state change, backups
     # run nightly. Both are silent unless ADMIN_LOG_CHAT_ID is set.
-    health_task = asyncio.create_task(run_health_loop(bot))
+    health_task = asyncio.create_task(run_hourly_health_loop(bot))
+    accounting_task = asyncio.create_task(run_daily_accounting_loop(bot))
     backup_task = asyncio.create_task(run_backup_loop(bot))
 
     try:
@@ -137,6 +139,7 @@ async def main() -> None:
         reminder_task.cancel()
         reconcile_task.cancel()
         health_task.cancel()
+        accounting_task.cancel()
         backup_task.cancel()
         await runner.cleanup()
         await bot.session.close()

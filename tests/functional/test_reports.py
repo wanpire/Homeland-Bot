@@ -192,7 +192,7 @@ async def test_reports_screen_renders_every_section(
     await _seed_service(telegram_id=6500, username="ir.rp0001", is_trial=True)
     await _seed_payment(telegram_id=6500, amount="7.00", status="paid", plan_id=plan_id)
 
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:reports"))
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:reports:overview"))
 
     text = _screen(fake_session)
     assert "Reports" in text
@@ -209,7 +209,7 @@ async def test_every_period_renders(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict,
     ibsng_server: FakeIBSngServer, period: str,
 ) -> None:
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:reports:{period}"))
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:reports:overview:{period}"))
 
     assert "Reports" in _screen(fake_session)
 
@@ -218,7 +218,7 @@ async def test_every_period_renders(
 async def test_empty_database_reports_zeroes_rather_than_crashing(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
 ) -> None:
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:reports:all"))
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:reports:overview:all"))
 
     text = _screen(fake_session)
     assert "No accounts yet." in text
@@ -231,7 +231,7 @@ async def test_support_admin_is_refused(
 ) -> None:
     await _seed_admin(6600, "support")
 
-    await dispatcher.feed_update(bot, make_callback_update(6600, "adm:reports"))
+    await dispatcher.feed_update(bot, make_callback_update(6600, "adm:reports:overview"))
 
     assert not [c for c in fake_session.calls if c[0] == "editMessageText"]
     answered = [c for c in fake_session.calls if c[0] == "answerCallbackQuery"]

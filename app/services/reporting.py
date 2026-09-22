@@ -407,3 +407,60 @@ async def top_plans(session: AsyncSession, *, period: str, limit: int = 5) -> li
         PlanSales(plan_name=name, category=category, orders=orders, revenue=Decimal(str(revenue)))
         for name, category, orders, revenue in rows
     ]
+
+
+@dataclass
+class SignupReport:
+    signups: int
+    all_time: int
+    buyers: int
+
+    @property
+    def conversion_rate(self) -> Decimal:
+        if not self.signups:
+            return Decimal("0.0")
+        return (Decimal(self.buyers) * 100 / Decimal(self.signups)).quantize(Decimal("0.1"))
+
+
+async def signup_report(session: AsyncSession, *, period: str) -> SignupReport:
+    """New users in the period, and how many of those same people have
+    ever paid. The numerator is deliberately not period-scoped, for the
+    same reason trial conversion is not: someone who signs up on the
+    30th and buys on the 2nd converted."""
+    signups, all_time = await signup_count(session, period=period)
+
+    start = period_start(period)
+    filters = [] if start is None else [BotUser.first_seen_at >= start]
+    new_ids = set((await session.execute(select(BotUser.telegram_id).where(*filters))).scalars().all())
+    if not new_ids:
+        return SignupReport(signups=signups, all_time=all_time, buyers=0)
+
+    payers = set(
+        (
+            await session.execute(
+                select(Payment.telegram_id).where(Payment.status == PAID, Payment.telegram_id.in_(new_ids))
+            )
+        ).scalars().all()
+    )
+    return SignupReport(signups=signups, all_time=all_time, buyers=len(new_ids & payers))
+
+
+@dataclass
+class SalesReport:
+    orders: int
+    revenue: Decimal
+    average_order: Decimal
+    by_plan: list[PlanSales]
+
+
+async def sales_report(session: AsyncSession, *, period: str) -> SalesReport:
+    """Reuses revenue_summary and top_plans rather than re-querying, so
+    the Sales screen and the Accounting screen cannot disagree about the
+    same period."""
+    summary = await revenue_summary(session, period=period)
+    return SalesReport(
+        orders=summary.paid_orders,
+        revenue=summary.revenue,
+        average_order=summary.average_order,
+        by_plan=await top_plans(session, period=period, limit=10),
+    )

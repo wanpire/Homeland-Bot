@@ -137,10 +137,21 @@ Redis (FSM), pydantic-settings, Docker Compose.
   compose an entry elsewhere; adding a category is one `EVENTS` entry
   plus one call site. `log_event` never raises and returns immediately
   when `ADMIN_LOG_CHAT_ID` is blank, so logging can never break a flow.
-  `app/services/health.py` posts only on a state CHANGE plus a daily
-  heartbeat - a check that says "all ok" every 15 minutes is how a log
-  group becomes unreadable. `app/services/backup.py` runs the nightly
-  pg_dump whose result that group reports.
+  The group is a forum: each `EventType` names a `topic`, and
+  `app/services/logtopics.py` creates that topic on first use and stores
+  its thread id in `app_config` (`log_topic:<category>`) - never
+  hardcode a thread id. A topic that cannot be created falls back to the
+  general thread rather than dropping the entry. `/logtopics` (full
+  admins) creates any missing topic and is safe to re-run.
+  `app/services/scheduled_reports.py` posts service + server health
+  hourly (a heartbeat in a dedicated topic is reassurance, not noise;
+  `health.py` still posts immediately on a state change) and the
+  accounting summary daily at 08:00 UTC, from the same `reporting.py`
+  queries the Reports screens read. `app/services/backup.py` runs the
+  nightly pg_dump whose result that group reports.
+- Reports (`adm:reports`) is a menu: Overview, Signups, Sales,
+  Accounting (each with the period selector, `adm:reports:<kind>:<period>`),
+  Service Health, Server Health, Backups. Sales-gated throughout.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

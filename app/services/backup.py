@@ -150,3 +150,45 @@ async def run_backup_loop(bot: Bot) -> None:
             raise
         except Exception:
             logger.exception("Backup loop pass failed")
+
+
+@dataclass
+class BackupFile:
+    name: str
+    size_bytes: int
+    age_seconds: float
+
+    @property
+    def size_text(self) -> str:
+        return _human_size(self.size_bytes)
+
+    @property
+    def age_text(self) -> str:
+        hours = self.age_seconds / 3600
+        if hours < 1:
+            return f"{int(self.age_seconds // 60)}m"
+        if hours < 24:
+            return f"{int(hours)}h"
+        return f"{int(hours // 24)}d"
+
+
+def backup_history(limit: int = 20) -> list[BackupFile]:
+    """What is actually on disk, newest first. Read from the directory
+    rather than a table: the files are the truth, and a row claiming a
+    backup exists when the file is gone would be worse than no row."""
+    try:
+        paths = sorted(BACKUP_DIR.glob("homeland-*.sql.gz"), reverse=True)
+    except OSError:
+        return []
+
+    now = dt.datetime.now(dt.timezone.utc).timestamp()
+    history: list[BackupFile] = []
+    for path in paths[:limit]:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        history.append(
+            BackupFile(name=path.name, size_bytes=stat.st_size, age_seconds=max(0.0, now - stat.st_mtime))
+        )
+    return history
