@@ -20,12 +20,18 @@ from app.bot.middlewares.mandatory_channel import MandatoryChannelMiddleware
 from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
 from app.bot.middlewares.user_tracking import UserTrackingMiddleware
 from app.config import get_settings
+from app.logging_setup import install_secret_redaction
+from app.services.payments.reconcile import run_reconcile_loop
 from app.services.reminders import run_reminder_loop
 from app.webhook import create_webhook_app
 
 settings = get_settings()
 
 logging.basicConfig(level=settings.log_level)
+# Installed immediately after basicConfig and before any client runs:
+# httpx logs full request URLs at INFO, and Plisio's secret key travels
+# as a query parameter, so without this the live key lands in the logs.
+install_secret_redaction([settings.plisio_secret_key, settings.bot_token])
 logger = logging.getLogger(__name__)
 
 
@@ -109,12 +115,16 @@ async def main() -> None:
     logger.info("Webhook server listening on :%s", settings.webhook_port)
 
     reminder_task = asyncio.create_task(run_reminder_loop(bot))
+    # Finishes any paid invoice whose activation failed while IBSng was
+    # unreachable, after Plisio has given up retrying its callback.
+    reconcile_task = asyncio.create_task(run_reconcile_loop(bot))
 
     try:
         logger.info("Starting polling...")
         await dp.start_polling(bot)
     finally:
         reminder_task.cancel()
+        reconcile_task.cancel()
         await runner.cleanup()
         await bot.session.close()
 

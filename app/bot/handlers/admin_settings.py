@@ -45,6 +45,7 @@ from app.services.groups import sync_groups
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
 from app.services.payments.plisio import PaymentProviderNotConfiguredError, PlisioError, list_currencies
+from app.services.payments.reconcile import MAX_AGE_HOURS, reconcile_pending_payments
 from app.services.reminders import DEFAULT_DAYS_BEFORE
 from app.services.mandatory_channel import (
     get_mandatory_channels,
@@ -586,4 +587,29 @@ async def settings_crypto_coins_cb(callback: CallbackQuery, state: FSMContext) -
     await state.clear()
     if callback.message is not None:
         await callback.message.edit_text(await _crypto_coins_text(), reply_markup=back_to_settings_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:settings:reconcile")
+async def settings_reconcile_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    """Runs the stuck-payment sweep on demand. The same sweep runs in the
+    background every 10 minutes; this button exists for the moment an
+    admin already knows a buyer is waiting."""
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.edit_text("🔄 Checking Plisio for paid-but-unfinished orders…")
+
+    counts = await reconcile_pending_payments(callback.bot)
+
+    text = (
+        "🔄 <b>Recover Stuck Payments</b>\n\n"
+        f"Open orders checked (last {MAX_AGE_HOURS}h): {counts['checked']}\n"
+        f"Activated just now: {counts['activated']}\n"
+        f"Still waiting for payment: {counts['still_open']}\n"
+        f"Lookup errors: {counts['errors']}"
+    )
+    if counts["errors"]:
+        text += "\n\n⚠️ Some lookups failed — check the logs."
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=back_to_settings_keyboard())
     await callback.answer()

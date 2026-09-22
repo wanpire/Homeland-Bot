@@ -322,10 +322,11 @@ async def test_webhook_finished_tolerates_blocked_bot_on_username_collision(
     async def _boom(*args, **kwargs):
         raise VPNUsernameTakenError("collision")
 
-    # Patch at the point app/webhook.py imports it from, so the handler's
-    # call actually raises this.
-    import app.webhook as webhook_module
-    monkeypatch.setattr(webhook_module, "activate_finished_payment", _boom)
+    # Patch where the shared confirmation service imports it from - the
+    # webhook now delegates provisioning there rather than calling it.
+    from app.services.payments import confirmation
+
+    monkeypatch.setattr(confirmation, "activate_finished_payment", _boom)
 
     async def _blocked(*args, **kwargs):
         raise TelegramForbiddenError(method=None, message="bot was blocked by the user")

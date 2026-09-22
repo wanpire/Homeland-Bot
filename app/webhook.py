@@ -4,7 +4,6 @@ import datetime as dt
 import logging
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
@@ -15,11 +14,8 @@ from app.db.models.payment_status_event import PaymentStatusEvent
 from app.db.session import async_session_maker
 from app.i18n.texts import t
 from app.services.bot_users import get_language
-from app.services.ibsng.client import IBSngClient
-from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
+from app.services.payments.confirmation import ACTIVATED, TRANSIENT, confirm_paid_payment
 from app.services.payments.crypto_provider import CryptoProvider
-from app.services.payments.service import activate_finished_payment
-from app.services.vpn_users import VPNUsernameTakenError
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +56,27 @@ def create_webhook_app(bot: Bot) -> web.Application:
 
 async def _handle_crypto_ipn(request: web.Request) -> web.Response:
     raw_body = await request.read()
+    peer = request.headers.get("X-Forwarded-For") or (request.remote or "?")
+    # Every attempt is logged, accepted or not. A silently dropped
+    # callback means a customer pays and gets nothing, and the first
+    # production incident was diagnosed only because the access log
+    # happened to show the POSTs - that must not be luck next time.
+    logger.info("Crypto callback received from %s (%d bytes)", peer, len(raw_body))
     # Plisio puts its verify_hash INSIDE the body, so there is no
     # signature header to read (NOWPayments used x-nowpayments-sig). The
     # empty string keeps the PaymentProvider interface intact.
     event = _provider.verify_webhook(raw_body, "")
     if event is None:
-        logger.warning("Crypto callback signature/payload invalid")
+        logger.error(
+            "Crypto callback REJECTED from %s - signature or payload invalid; body starts: %.120s",
+            peer, raw_body.decode("utf-8", "replace"),
+        )
         return web.Response(status=401, text="invalid signature")
+
+    logger.info(
+        "Crypto callback verified: order=%s txn=%s status=%s amount=%s",
+        event.order_id, event.provider_payment_id, event.raw_status, event.paid_amount,
+    )
 
     bot: Bot = request.app["bot"]
 
@@ -90,6 +100,10 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             else None
         )
         if payment is None:
+            logger.warning(
+                "Crypto callback for unknown order_number=%s (txn=%s) - ignored",
+                event.order_id, event.provider_payment_id,
+            )
             return web.Response(status=200, text="ignored")
 
         session.add(PaymentStatusEvent(
@@ -138,6 +152,9 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             )
         ).scalar_one()
         if payment.status in _TERMINAL_STATUSES:
+            logger.info(
+                "Crypto callback: payment %s is already %s - ignored", payment.id, payment.status
+            )
             return web.Response(status=200, text="ignored")
 
         new_status = _FINAL_STATUSES[event.raw_status]
@@ -151,38 +168,23 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             new_status = "partially_paid" if (event.paid_amount or 0) > 0 else "failed"
 
         if new_status == "paid":
-            async with IBSngClient() as client:
-                try:
-                    username = await activate_finished_payment(session, client, payment)
-                except VPNUsernameTakenError:
-                    logger.error("Payment %s: pre-generated username collided", payment.id)
-                    lang = (await get_language(session, payment.telegram_id)) or "en"
-                    await _notify_activation_technical_issue(bot, payment, lang)
-                    return web.Response(status=200, text="ok")
-                except IBSngUserExistsError:
-                    # Permanent failure - an orphaned IBSng-side account
-                    # (e.g. from an earlier crash) with no matching local
-                    # VPNUser row. Retrying can never fix this; a human
-                    # needs to look at it, so no 500/retry here.
-                    logger.error(
-                        "Payment %s: IBSng account already exists (orphaned account)", payment.id,
-                    )
-                    lang = (await get_language(session, payment.telegram_id)) or "en"
-                    await _notify_activation_technical_issue(bot, payment, lang)
-                    return web.Response(status=200, text="ok")
-                except IBSngError as exc:
-                    logger.error("Payment %s: IBSng error during activation: %s", payment.id, exc)
-                    return web.Response(status=500, text="ibsng error")  # lets Plisio retry the callback
-
-            payment.status = "paid"
-            payment.resolved_at = dt.datetime.now(dt.timezone.utc)
-            await session.commit()
-            action_key = "action_renewed" if payment.purpose == "renew" else "action_activated"
-            lang = (await get_language(session, payment.telegram_id)) or "en"
-            await bot.send_message(
-                payment.telegram_id,
-                t("payment_confirmed", lang, username=username, action=t(action_key, lang)),
-            )
+            result = await confirm_paid_payment(bot, session, payment)
+            if result.outcome == TRANSIENT:
+                # Ask Plisio to redeliver. If it stops retrying before
+                # the problem clears, app/services/payments/reconcile.py
+                # finishes the job - that is exactly how payment 16
+                # survived an IBSng outage on 2026-09-22.
+                logger.error(
+                    "Crypto callback: payment %s could not be activated (%s) - asking Plisio to retry",
+                    payment.id, result.detail,
+                )
+                return web.Response(status=500, text="activation failed")
+            if result.outcome == ACTIVATED:
+                logger.info("Crypto callback: payment %s activated as %s", payment.id, result.username)
+            else:
+                logger.error(
+                    "Crypto callback: payment %s is blocked and needs a human (%s)", payment.id, result.detail
+                )
 
         elif new_status == "partially_paid":
             payment.status = "partially_paid"
@@ -211,20 +213,6 @@ async def _handle_crypto_ipn(request: web.Request) -> web.Response:
             # "refunded": recorded, no user-facing message defined for v1.
 
     return web.Response(status=200, text="ok")
-
-
-async def _notify_activation_technical_issue(bot: Bot, payment: Payment, lang: str) -> None:
-    """Notify the user that their payment was received but activation hit
-    a permanent technical issue. Tolerates the user having blocked the
-    bot - that failure must never prevent the handler's 200 response,
-    since Plisio would otherwise retry forever for a situation retrying
-    can never fix."""
-    try:
-        await bot.send_message(payment.telegram_id, t("activation_technical_issue", lang))
-    except TelegramForbiddenError:
-        logger.warning(
-            "Payment %s: could not notify user %s - bot is blocked", payment.id, payment.telegram_id,
-        )
 
 
 def _topup_keyboard(payment: Payment, lang: str) -> InlineKeyboardMarkup:

@@ -131,6 +131,18 @@ async def list_currencies() -> list[dict[str, Any]]:
     return [row for row in data if isinstance(row, dict)]
 
 
+async def get_invoice_status(txn_id: str) -> str | None:
+    """The status Plisio itself holds for one invoice, or None when it
+    has no such record. Used by the reconciler to answer "did this
+    actually get paid?" without trusting a callback that may never have
+    been retried."""
+    data = await _get(f"operations/{txn_id}", {})
+    if not isinstance(data, dict):
+        return None
+    status = data.get("status")
+    return str(status) if status else None
+
+
 def _candidate_encodings(payload: dict[str, Any]) -> list[str]:
     """The two serializations Plisio's own examples document.
 

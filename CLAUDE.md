@@ -76,6 +76,17 @@ Redis (FSM), pydantic-settings, Docker Compose.
   per-coin minimum check in this codebase - see
   `docs/superpowers/specs/2026-09-22-plisio-migration-design.md` §4.
   Coins come from `PLISIO_PAY_CURRENCIES`.
+- `app/services/payments/confirmation.py` - the ONE path from "invoice
+  paid" to "service provisioned", used by both the Plisio callback and
+  the reconciler. `app/services/payments/reconcile.py` sweeps every open
+  payment against Plisio's own record and finishes any it calls
+  completed: on 2026-09-22 a real payment was stranded because IBSng was
+  down when the callback arrived and Plisio stopped retrying, and nothing
+  would ever have recovered it.
+- `app/logging_setup.py` - redacts secrets from EVERY logger, including
+  third-party ones. Plisio takes its key as a query parameter and httpx
+  logs full URLs at INFO, which leaked the live key into the container
+  logs until this landed.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).
