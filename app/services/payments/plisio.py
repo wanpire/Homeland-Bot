@@ -43,6 +43,12 @@ class PaymentProviderNotConfiguredError(Exception):
     key is provisioned."""
 
 
+def _one_line(text: str) -> str:
+    """Collapse whitespace: Plisio answers some errors with a full HTML
+    page, and a multi-line body turns one log entry into fifty."""
+    return " ".join(text.split())
+
+
 def _redact(text: str) -> str:
     """Strip the secret key out of anything bound for an exception or log.
 
@@ -76,7 +82,7 @@ async def _get(action: str, params: dict[str, str]) -> Any:
         body = response.json()
     except ValueError as exc:
         raise PlisioError(
-            f"Plisio {action} returned non-JSON (http {response.status_code}): {_redact(response.text[:200])}"
+            f"Plisio {action} returned non-JSON (http {response.status_code}): {_redact(_one_line(response.text)[:200])}"
         ) from exc
 
     if not isinstance(body, dict) or body.get("status") != "success":
@@ -85,7 +91,7 @@ async def _get(action: str, params: dict[str, str]) -> Any:
         code = data.get("code") if isinstance(data, dict) else None
         raise PlisioError(
             f"Plisio {action} failed (http {response.status_code}, code {code}): "
-            f"{_redact(str(message or response.text[:200]))}"
+            f"{_redact(_one_line(str(message or response.text))[:200])}"
         )
     return body.get("data")
 

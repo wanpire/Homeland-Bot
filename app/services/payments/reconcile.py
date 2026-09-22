@@ -33,6 +33,9 @@ CHECK_INTERVAL_SECONDS = 10 * 60
 #: this window never will be, and re-querying it forever would be noise.
 MAX_AGE_HOURS = 72
 
+#: Only this provider's payments can be looked up on Plisio.
+PROVIDER = "plisio"
+
 #: Statuses on Plisio's side that mean the money arrived in full.
 _PAID_STATUSES = {"completed"}
 
@@ -49,6 +52,10 @@ async def reconcile_pending_payments(bot: Bot) -> dict[str, int]:
         result = await session.execute(
             select(Payment.id).where(
                 Payment.status.in_(_OPEN_STATUSES),
+                # Only Plisio's own orders: rows from the NOWPayments era
+                # carry that provider's numeric ids, which Plisio answers
+                # with a 404 forever.
+                Payment.provider == PROVIDER,
                 Payment.provider_payment_id.is_not(None),
                 Payment.created_at >= _cutoff(),
             )

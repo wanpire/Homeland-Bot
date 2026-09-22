@@ -270,3 +270,55 @@ def test_secret_redaction_filter_ignores_trivial_values() -> None:
     )
     SecretRedactingFilter(["", "abc"]).filter(record)
     assert record.getMessage() == "nothing to hide here"
+
+
+def test_secret_redaction_filter_scrubs_non_string_arguments() -> None:
+    """httpx logs the request line with an httpx.URL object, not a string,
+    and the key rides in its query - the first version of this filter
+    missed exactly that and the live key kept reaching the logs."""
+    import logging
+
+    from app.logging_setup import SecretRedactingFilter
+
+    class _FakeUrl:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def __str__(self) -> str:
+            return self._text
+
+    secret = "korC8qVlml_Tc0nLRCc60U-iGzvy7Le8"
+    url = _FakeUrl(f"https://api.plisio.net/api/v1/invoices/new?api_key={secret}")
+    record = logging.LogRecord(
+        name="httpx", level=logging.INFO, pathname=__file__, lineno=1,
+        msg='HTTP Request: %s %s "%s"', args=("GET", url, "HTTP/1.1 200 OK"), exc_info=None,
+    )
+
+    SecretRedactingFilter([secret]).filter(record)
+    assert secret not in record.getMessage()
+    assert "***" in record.getMessage()
+
+
+@pytest.mark.asyncio
+async def test_reconciler_skips_payments_from_a_previous_provider(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NOWPayments-era rows carry that provider's numeric ids, which
+    Plisio 404s forever - they must not be looked up at all."""
+    from app.db.models.payment import Payment
+    from app.services.payments import reconcile
+
+    payment = await _pending_payment(seeded_catalog, monkeypatch, telegram_id=1707)
+    async with async_session_maker() as session:
+        stale = await session.get(Payment, payment.id)
+        stale.provider = "nowpayments"
+        stale.provider_payment_id = "4617681042"
+        await session.commit()
+
+    async def _must_not_be_called(txn_id: str) -> str:
+        raise AssertionError(f"a {'nowpayments'} order must never be looked up on Plisio (got {txn_id})")
+
+    monkeypatch.setattr(reconcile, "get_invoice_status", _must_not_be_called)
+
+    counts = await reconcile.reconcile_pending_payments(bot)
+    assert counts["checked"] == 0 and counts["errors"] == 0

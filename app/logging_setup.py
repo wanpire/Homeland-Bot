@@ -43,10 +43,23 @@ class SecretRedactingFilter(logging.Filter):
 
     def _scrub_args(self, args: object) -> object:
         if isinstance(args, dict):
-            return {k: self._scrub(v) if isinstance(v, str) else v for k, v in args.items()}
+            return {key: self._scrub_value(value) for key, value in args.items()}
         if isinstance(args, tuple):
-            return tuple(self._scrub(a) if isinstance(a, str) else a for a in args)
-        return args
+            return tuple(self._scrub_value(a) for a in args)
+        return self._scrub_value(args)
+
+    def _scrub_value(self, value: object) -> object:
+        """Non-string arguments matter as much as strings: httpx logs the
+        request line with an httpx.URL object, and the secret rides in
+        its query string. Anything whose text form carries a secret is
+        replaced with that redacted text."""
+        if isinstance(value, str):
+            return self._scrub(value)
+        try:
+            text = str(value)
+        except Exception:
+            return value
+        return self._scrub(text) if any(secret in text for secret in self._secrets) else value
 
 
 def install_secret_redaction(secrets: list[str]) -> None:
