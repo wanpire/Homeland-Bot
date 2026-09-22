@@ -191,7 +191,7 @@ def test_category_display_name_trip() -> None:
     from app.services.catalog import category_display_name
 
     assert category_display_name("trip", "en") == "🧳 Trip"
-    assert category_display_name("trip", "fa") == "🧳 سفر کوتاه"
+    assert category_display_name("trip", "fa") == "🧳 سفر"
 
 
 @pytest.mark.asyncio
@@ -219,7 +219,7 @@ def test_category_display_name_translates_known_categories() -> None:
     from app.services.catalog import category_display_name
 
     assert category_display_name("scroll", "en") == "📜 Scroll"
-    assert category_display_name("scroll", "fa") == "📜 اسکرول"
+    assert category_display_name("scroll", "fa") == "📜 وب‌گردی"
     assert category_display_name("stream", "en") == "🌊 Stream"
 
 
