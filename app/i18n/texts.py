@@ -206,10 +206,10 @@ TEXTS: dict[str, dict[str, str]] = {
 
         "buy_category_heading": "🔑 <b>خرید اشتراک</b>\n\nیک دسته را انتخاب کنید:",
         "buy_pick_plan": "یک پلن را انتخاب کنید:",
-        "category_scroll": "📜 اسکرول",
-        "category_stream": "🌊 استریم",
+        "category_scroll": "📜 وب‌گردی",
+        "category_stream": "🌊 تماشا",
         "category_trial": "تست رایگان",
-        "category_trip": "🧳 سفر کوتاه",
+        "category_trip": "🧳 سفر",
         "plan_gone": "⚠️ این پلن دیگر وجود ندارد. لطفاً پلن دیگری انتخاب کنید.",
         "payment_coming_soon": (
             "🚧 روش‌های پرداخت (استرایپ، ارز دیجیتال) به‌زودی فعال می‌شوند — به محض "

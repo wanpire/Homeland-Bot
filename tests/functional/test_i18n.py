@@ -93,3 +93,18 @@ def test_t_falls_back_to_english_when_key_missing_from_requested_language(caplog
         # Restore original dicts
         texts.TEXTS["en"] = original_en
         texts.TEXTS["fa"] = original_fa
+
+
+def test_category_labels_are_correct_in_both_languages() -> None:
+    """Pinned in both languages together so a future edit cannot quietly
+    change one side only. The slugs behind these labels key the database
+    and are deliberately not touched here."""
+    from app.i18n.texts import t
+
+    assert t("category_scroll", "fa") == "📜 وب‌گردی"
+    assert t("category_stream", "fa") == "🌊 تماشا"
+    assert t("category_trip", "fa") == "🧳 سفر"
+
+    assert t("category_scroll", "en") == "📜 Scroll"
+    assert t("category_stream", "en") == "🌊 Stream"
+    assert t("category_trip", "en") == "🧳 Trip"
