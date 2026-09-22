@@ -123,6 +123,15 @@ Redis (FSM), pydantic-settings, Docker Compose.
   `status == "paid"` and nothing else, dated by `resolved_at` falling
   back to `created_at`. Refunds are reported if they appear but no
   refund action exists: nothing in the codebase can set that status.
+- `app/services/user_admin.py` - one customer's full picture for the
+  admin detail view. **Never read `VPNUser.expires_at`**: nothing in the
+  codebase writes it, so it is NULL for every row and would read as "no
+  expiry" for a live account. Status and expiry come live from
+  `get_service_status`, which never raises. Any path that renews an
+  IBSng account must re-run `is_homeland_group` first, including one
+  starting from our own `vpn_users` row: the instance is shared with
+  AloBot and an account moved out of a Homeland group is exactly what
+  that guard catches.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

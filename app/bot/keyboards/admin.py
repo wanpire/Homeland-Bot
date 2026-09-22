@@ -68,6 +68,7 @@ def back_to_financial_keyboard() -> InlineKeyboardMarkup:
 
 def admin_users_menu() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Find a User", callback_data="adm:users:find")
     builder.button(text="♻️ Renew a Service", callback_data="adm:users:renew")
     builder.button(text="🚫 Blocked Users", callback_data="adm:users:blocked:0")
     builder.button(text="⬅️ Back to Admin Panel", callback_data="adm:root")
