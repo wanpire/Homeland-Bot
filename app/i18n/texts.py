@@ -132,9 +132,28 @@ TEXTS: dict[str, dict[str, str]] = {
         "any_platform_label": "Any platform:",
 
         # --- webhook.py ---
-        "payment_confirmed": "🎉 Payment confirmed! Your service (<code>{username}</code>) has been {action}.",
-        "action_activated": "activated",
-        "action_renewed": "renewed",
+        "order_delivered": (
+            "🎉 Your order has been placed successfully.\n\n"
+            "<b>Plan:</b> {plan}\n"
+            "<b>Duration:</b> {days} days from first connection\n"
+            "<b>Volume:</b> {volume}\n\n"
+            "<b>Username:</b> <code>{username}</code>\n"
+            "<b>Password:</b> <code>{password}</code>\n\n"
+            "Setup instructions and connection details for different platforms and "
+            "protocols are available in the Tutorial section of the main menu."
+        ),
+        "order_delivered_no_password": (
+            "🎉 Your order has been placed successfully.\n\n"
+            "<b>Plan:</b> {plan}\n"
+            "<b>Duration:</b> {days} days from first connection\n"
+            "<b>Volume:</b> {volume}\n\n"
+            "<b>Username:</b> <code>{username}</code>\n"
+            "<b>Password:</b> unavailable — please contact support\n\n"
+            "Setup instructions and connection details for different platforms and "
+            "protocols are available in the Tutorial section of the main menu."
+        ),
+        "tutorial_button": "📘 Tutorial",
+        "back_to_main_menu_button": "🔙 Back to Main Menu",
         "partial_payment": (
             "⚠️ We received a partial payment — it wasn't quite enough to complete your order, "
             "so your service hasn't been activated yet. Tap below to finish paying the remaining "
@@ -287,9 +306,28 @@ TEXTS: dict[str, dict[str, str]] = {
         "download_openvpn_links_heading": "📥 دانلود OpenVPN Connect:",
         "any_platform_label": "همه دستگاه‌ها:",
 
-        "payment_confirmed": "🎉 پرداخت تأیید شد! سرویس شما (<code>{username}</code>) {action} شد.",
-        "action_activated": "فعال",
-        "action_renewed": "تمدید",
+        "order_delivered": (
+            "🎉 سفارش شما با موفقیت ثبت شد.\n\n"
+            "<b>پلن خریداری‌شده:</b> {plan}\n"
+            "<b>مدت زمان استفاده:</b> {days} روز از زمان اولین اتصال\n"
+            "<b>حجم:</b> {volume}\n\n"
+            "<b>یوزرنیم:</b> <code>{username}</code>\n"
+            "<b>پسورد:</b> <code>{password}</code>\n\n"
+            "آموزش تنظیمات و اطلاعات اتصال برای پلتفرم‌ها و پروتکل‌های مختلف را "
+            "می‌توانید از بخش «آموزش» در منوی اصلی دریافت کنید."
+        ),
+        "order_delivered_no_password": (
+            "🎉 سفارش شما با موفقیت ثبت شد.\n\n"
+            "<b>پلن خریداری‌شده:</b> {plan}\n"
+            "<b>مدت زمان استفاده:</b> {days} روز از زمان اولین اتصال\n"
+            "<b>حجم:</b> {volume}\n\n"
+            "<b>یوزرنیم:</b> <code>{username}</code>\n"
+            "<b>پسورد:</b> در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید\n\n"
+            "آموزش تنظیمات و اطلاعات اتصال برای پلتفرم‌ها و پروتکل‌های مختلف را "
+            "می‌توانید از بخش «آموزش» در منوی اصلی دریافت کنید."
+        ),
+        "tutorial_button": "📘 آموزش",
+        "back_to_main_menu_button": "🔙 بازگشت به منوی اصلی",
         "partial_payment": (
             "⚠️ پرداخت جزئی دریافت شد — مبلغ کافی برای تکمیل سفارش نبود، بنابراین سرویس "
             "شما هنوز فعال نشده است. برای تکمیل باقی‌مانده مبلغ روی دکمه زیر بزنید؛ صفحه "

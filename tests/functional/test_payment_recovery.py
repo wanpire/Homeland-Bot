@@ -62,7 +62,8 @@ def _plan_id(seeded_catalog: dict, *, category: str, name: str) -> int:
     return next(p["id"] for p in seeded_catalog["plans"] if p["category"] == category and p["name"] == name)
 
 
-async def _pending_payment(seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch, telegram_id: int):  # type: ignore[no-untyped-def]
+async def _pending_payment(seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch, telegram_id: int,
+                           *, plan_id: int | None = None):  # type: ignore[no-untyped-def]
     from app.services.catalog import get_plan
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
@@ -71,7 +72,10 @@ async def _pending_payment(seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
         return "https://plisio.net/invoice/6ab2a5a944c0a2412901e063", REAL_CALLBACK["txn_id"]
 
     monkeypatch.setattr(CryptoProvider, "create_invoice", _fake_create_invoice)
-    plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
+    # Plan NAMES repeat across categories ("1 Month" exists in Scroll and
+    # Stream), so callers that care about a specific plan pass its id.
+    if plan_id is None:
+        plan_id = _plan_id(seeded_catalog, category="scroll", name="1 Month")
     async with async_session_maker() as session:
         plan = await get_plan(session, plan_id)
         return await create_crypto_payment(
@@ -106,7 +110,7 @@ async def test_the_real_production_callback_confirms_the_purchase(
     assert len(users) == 1, "the plan must actually be provisioned"
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert any("payment confirmed" in (c[1].get("text") or "").lower() for c in sent)
+    assert any("order has been placed" in (c[1].get("text") or "").lower() for c in sent)
 
 
 @pytest.mark.asyncio
@@ -167,7 +171,7 @@ async def test_reconciler_activates_a_payment_plisio_calls_completed(
         assert refreshed.status == "paid"
         users = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 1703))).scalars().all()
     assert len(users) == 1
-    assert any("payment confirmed" in (c[1].get("text") or "").lower()
+    assert any("order has been placed" in (c[1].get("text") or "").lower()
                for c in fake_session.calls if c[0] == "sendMessage")
 
 
@@ -322,3 +326,130 @@ async def test_reconciler_skips_payments_from_a_previous_provider(
 
     counts = await reconcile.reconcile_pending_payments(bot)
     assert counts["checked"] == 0 and counts["errors"] == 0
+
+
+async def _deliver(bot: Any, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch, telegram_id: int,
+                   *, lang: str | None = None, plan_id: int | None = None):  # type: ignore[no-untyped-def]
+    """Drive one purchase through the real callback and hand back the
+    delivery message that reached the buyer."""
+    from app.services.bot_users import record_seen, set_language
+
+    if lang is not None:
+        async with async_session_maker() as session:
+            await record_seen(session, telegram_id, None)
+            await set_language(session, telegram_id, lang)
+
+    payment = await _pending_payment(seeded_catalog, monkeypatch, telegram_id=telegram_id, plan_id=plan_id)
+    client = await _make_client(bot)
+    try:
+        body = _signed_body({**REAL_CALLBACK, "order_number": str(payment.id)})
+        await client.post("/webhooks/crypto?json=true", data=body, headers={"Content-Type": "application/json"})
+    finally:
+        await client.close()
+    return payment
+
+
+@pytest.mark.asyncio
+async def test_delivery_message_carries_the_order_details_in_english(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payment = await _deliver(bot, seeded_catalog, monkeypatch, 1801)
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1801]
+    text = sent[-1][1]["text"]
+    assert "Your order has been placed successfully" in text
+    assert "1 Month" in text
+    assert "30 days from first connection" in text
+    assert "10 GB" in text
+    # Separate spans: tap-to-copy works per span, so one combined block
+    # would force the buyer to hand-edit the credentials apart.
+    assert f"<code>{payment.ibsng_username}</code>" in text
+    assert f"<code>{payment.ibsng_password}</code>" in text
+
+    buttons = {b["text"]: b["callback_data"] for row in sent[-1][1]["reply_markup"]["inline_keyboard"] for b in row}
+    assert buttons["📘 Tutorial"] == "menu:tutorials"
+    assert buttons["🔙 Back to Main Menu"] == "menu:root"
+
+
+@pytest.mark.asyncio
+async def test_delivery_message_is_persian_for_a_persian_buyer(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payment = await _deliver(bot, seeded_catalog, monkeypatch, 1802, lang="fa")
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1802]
+    text = sent[-1][1]["text"]
+    assert "سفارش شما با موفقیت ثبت شد" in text
+    assert "روز از زمان اولین اتصال" in text
+    assert f"<code>{payment.ibsng_username}</code>" in text
+    buttons = {b["text"] for row in sent[-1][1]["reply_markup"]["inline_keyboard"] for b in row}
+    assert "📘 آموزش" in buttons and "🔙 بازگشت به منوی اصلی" in buttons
+
+
+@pytest.mark.asyncio
+async def test_unlimited_plan_renders_volume_as_unlimited(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plan with data_cap_mb=0 must read "Unlimited", never "0 MB"."""
+    unlimited = next(
+        (p for p in seeded_catalog["plans"] if p["data_cap_mb"] == 0 and p["category"] != "trial"), None
+    )
+    if unlimited is None:
+        pytest.skip("no unlimited plan in the seeded catalog")
+
+    await _deliver(bot, seeded_catalog, monkeypatch, 1803, plan_id=unlimited["id"])
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1803]
+    assert "Unlimited" in sent[-1][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_missing_password_still_delivers_the_order(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The service IS provisioned - an unreadable password must degrade
+    to the contact-support variant, never look like a failed order."""
+    from app.services.payments import confirmation
+
+    async def _no_password(payment: Any, username: str) -> None:
+        return None
+
+    monkeypatch.setattr(confirmation, "_recover_password", _no_password)
+    payment = await _deliver(bot, seeded_catalog, monkeypatch, 1804)
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1804]
+    text = sent[-1][1]["text"]
+    assert "contact support" in text.lower()
+    assert payment.ibsng_username in text
+    assert "Your order has been placed successfully" in text
+
+
+@pytest.mark.asyncio
+async def test_renewal_reads_the_password_back_from_ibsng(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A renewal payment carries no password - the account keeps its own -
+    so it is read back the way the trial flow does."""
+    from app.db.models.payment import Payment
+    from app.services.payments import confirmation
+
+    payment = await _pending_payment(seeded_catalog, monkeypatch, telegram_id=1805)
+    async with async_session_maker() as session:
+        row = await session.get(Payment, payment.id)
+        row.ibsng_password = None
+        await session.commit()
+
+    async def _from_ibsng(payment_row: Any, username: str) -> str:
+        return "readback99"
+
+    monkeypatch.setattr(confirmation, "_recover_password", _from_ibsng)
+
+    client = await _make_client(bot)
+    try:
+        body = _signed_body({**REAL_CALLBACK, "order_number": str(payment.id)})
+        await client.post("/webhooks/crypto?json=true", data=body, headers={"Content-Type": "application/json"})
+    finally:
+        await client.close()
+
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1805]
+    assert "<code>readback99</code>" in sent[-1][1]["text"]

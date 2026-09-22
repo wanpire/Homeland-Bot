@@ -11,8 +11,8 @@ def test_generate_vpn_credentials_shape() -> None:
     from app.services.vpn_users import generate_vpn_credentials
 
     username, password = generate_vpn_credentials()
-    assert username.startswith("hl.")
-    assert len(username) == len("hl.") + 6
+    assert username.startswith("ir.")
+    assert len(username) == len("ir.") + 6
     assert len(password) == 6
     assert any(c.isalpha() for c in password)
     assert any(c.isdigit() for c in password)
@@ -32,17 +32,17 @@ async def test_create_vpn_user_creates_ibsng_and_local_row(ibsng_server: FakeIBS
     async with async_session_maker() as session, IBSngClient() as client:
         vpn_user = await create_vpn_user(
             session, client,
-            telegram_id=601, username="hl.abc123", password="ab12cd",
+            telegram_id=601, username="ir.abc123", password="ab12cd",
             group_name="Trial-Iran", data_cap_mb=1024, is_trial=True,
         )
 
-    assert vpn_user.ibsng_username == "hl.abc123"
+    assert vpn_user.ibsng_username == "ir.abc123"
     assert vpn_user.ibsng_group == "Trial-Iran"
     assert vpn_user.is_trial is True
     assert vpn_user.data_cap_mb == 1024
 
     async with IBSngClient() as client:
-        info = await client.get_user_info(username="hl.abc123")
+        info = await client.get_user_info(username="ir.abc123")
     assert info is not None
 
 
@@ -54,17 +54,17 @@ async def test_create_vpn_user_translates_unlimited_sentinel_to_positive_ibsng_c
     silently accepts credit=0 but leaves the account unusable, so the
     value that actually reaches IBSng must be positive - while the local
     row keeps 0, which is what format_data_cap renders as "Unlimited"."""
-    from app.services.vpn_users import _UNLIMITED_IBSNG_CREDIT, create_vpn_user
+    from app.services.vpn_users import UNLIMITED_PLAN_IBSNG_CREDIT, create_vpn_user
 
     async with async_session_maker() as session, IBSngClient() as client:
         vpn_user = await create_vpn_user(
             session, client,
-            telegram_id=630, username="hl.unl001", password="ab12cd",
+            telegram_id=630, username="ir.unl001", password="ab12cd",
             group_name="1M-1U-Iran-Unlimited", data_cap_mb=0,
         )
 
-    assert ibsng_server.user_credit("hl.unl001") == 10
-    assert _UNLIMITED_IBSNG_CREDIT == 10
+    assert ibsng_server.user_credit("ir.unl001") == UNLIMITED_PLAN_IBSNG_CREDIT
+    assert UNLIMITED_PLAN_IBSNG_CREDIT == 100
     # The DB-side display value is deliberately untouched.
     assert vpn_user.data_cap_mb == 0
 
@@ -80,11 +80,11 @@ async def test_create_vpn_user_forwards_a_capped_plans_data_cap_unchanged(
     async with async_session_maker() as session, IBSngClient() as client:
         vpn_user = await create_vpn_user(
             session, client,
-            telegram_id=631, username="hl.cap001", password="ab12cd",
+            telegram_id=631, username="ir.cap001", password="ab12cd",
             group_name="1M-1U-Iran-10G", data_cap_mb=10240,
         )
 
-    assert ibsng_server.user_credit("hl.cap001") == 10240
+    assert ibsng_server.user_credit("ir.cap001") == 10240
     assert vpn_user.data_cap_mb == 10240
 
 
@@ -94,14 +94,14 @@ async def test_create_vpn_user_rejects_duplicate_local_username(ibsng_server: Fa
 
     async with async_session_maker() as session, IBSngClient() as client:
         await create_vpn_user(
-            session, client, telegram_id=602, username="hl.dup001", password="ab12cd",
+            session, client, telegram_id=602, username="ir.dup001", password="ab12cd",
             group_name="Trial-Iran", data_cap_mb=1024, is_trial=True,
         )
 
     async with async_session_maker() as session, IBSngClient() as client:
         with pytest.raises(VPNUsernameTakenError):
             await create_vpn_user(
-                session, client, telegram_id=603, username="hl.dup001", password="ef34gh",
+                session, client, telegram_id=603, username="ir.dup001", password="ef34gh",
                 group_name="Trial-Iran", data_cap_mb=1024, is_trial=True,
             )
 
@@ -120,21 +120,21 @@ async def test_create_vpn_user_rejects_second_trial_for_same_telegram_id(ibsng_s
 
     async with async_session_maker() as session, IBSngClient() as client:
         await create_vpn_user(
-            session, client, telegram_id=604, username="hl.trial01", password="ab12cd",
+            session, client, telegram_id=604, username="ir.trial01", password="ab12cd",
             group_name="Trial-Iran", data_cap_mb=1024, is_trial=True,
         )
-    assert ibsng_server.created_usernames() == ["hl.trial01"]
+    assert ibsng_server.created_usernames() == ["ir.trial01"]
 
     async with async_session_maker() as session, IBSngClient() as client:
         with pytest.raises(TrialAlreadyUsedError):
             await create_vpn_user(
-                session, client, telegram_id=604, username="hl.trial02", password="ef34gh",
+                session, client, telegram_id=604, username="ir.trial02", password="ef34gh",
                 group_name="Trial-Iran", data_cap_mb=1024, is_trial=True,
             )
 
     # No account was provisioned for the rejected attempt - not even an
     # unnamed one from a half-finished create_user.
-    assert ibsng_server.created_usernames() == ["hl.trial01"]
+    assert ibsng_server.created_usernames() == ["ir.trial01"]
     assert ibsng_server.user_count() == 1
 
 
@@ -146,17 +146,17 @@ async def test_create_vpn_user_allows_a_second_non_trial_account(ibsng_server: F
 
     async with async_session_maker() as session, IBSngClient() as client:
         await create_vpn_user(
-            session, client, telegram_id=606, username="hl.paid001", password="ab12cd",
+            session, client, telegram_id=606, username="ir.paid001", password="ab12cd",
             group_name="1M-1U-Iran-10G", data_cap_mb=10240, is_trial=True,
         )
 
     async with async_session_maker() as session, IBSngClient() as client:
         second = await create_vpn_user(
-            session, client, telegram_id=606, username="hl.paid002", password="ef34gh",
+            session, client, telegram_id=606, username="ir.paid002", password="ef34gh",
             group_name="1M-1U-Iran-10G", data_cap_mb=10240, is_trial=False,
         )
     assert second.is_trial is False
-    assert ibsng_server.created_usernames() == ["hl.paid001", "hl.paid002"]
+    assert ibsng_server.created_usernames() == ["ir.paid001", "ir.paid002"]
 
 
 @pytest.mark.asyncio
@@ -169,7 +169,7 @@ async def test_has_used_trial() -> None:
     async with async_session_maker() as session:
         from app.db.models.vpn_user import VPNUser
 
-        session.add(VPNUser(telegram_id=605, ibsng_username="hl.hastrial", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
+        session.add(VPNUser(telegram_id=605, ibsng_username="ir.hastrial", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
         await session.commit()
 
     async with async_session_maker() as session:
@@ -183,7 +183,7 @@ async def test_has_used_trial_ignores_prior_trial_when_limit_disabled() -> None:
     from app.services.vpn_users import has_used_trial
 
     async with async_session_maker() as session:
-        session.add(VPNUser(telegram_id=607, ibsng_username="hl.limitoff", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
+        session.add(VPNUser(telegram_id=607, ibsng_username="ir.limitoff", ibsng_group="Trial-Iran", data_cap_mb=1024, is_trial=True))
         await session.commit()
 
     async with async_session_maker() as session:

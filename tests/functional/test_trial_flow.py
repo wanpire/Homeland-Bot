@@ -189,7 +189,7 @@ async def test_trial_platform_pick_delivers_and_sends_credentials(dispatcher: An
     await dispatcher.feed_update(bot, make_callback_update(807, f"trial:platform:{ios_id}"))
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert any("hl." in c[1]["text"] and "24" in c[1]["text"] for c in sent)
+    assert any("ir." in c[1]["text"] and "24" in c[1]["text"] for c in sent)
 
 
 async def _deliver_openvpn_trial(dispatcher: Any, bot: Any, telegram_id: int) -> None:

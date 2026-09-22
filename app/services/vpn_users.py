@@ -16,7 +16,7 @@ from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
 
 _CREDENTIAL_CHARS = string.ascii_lowercase + string.digits
-_USERNAME_PREFIX = "hl."
+_USERNAME_PREFIX = "ir."
 _USERNAME_SUFFIX_LEN = 6
 _PASSWORD_LEN = 6
 
@@ -24,16 +24,18 @@ _PASSWORD_LEN = 6
 # connect at all (confirmed via AloBot's app/services/ibsng/client.py,
 # which shares this same IBSng instance and documents this exact
 # finding). data_cap_mb=0 is Homeland's own display sentinel for
-# "Unlimited" data (see app/services/catalog.py's format_data_cap) -
-# it must never be forwarded to IBSng as a literal credit=0. AloBot
-# itself uses a flat credit=10 for every account regardless of plan,
-# which suggests IBSng's group-level policy (not per-user credit
-# magnitude) controls actual usage on these -Unlimited groups - so the
-# exact value is believed not to matter functionally, only that it's
-# positive. Confirmed with the product owner to use 10 here, matching
-# AloBot's known-working value; revisit if real Unlimited-plan usage
-# ever suggests otherwise.
-_UNLIMITED_IBSNG_CREDIT = 10
+# "Unlimited" data (see app/services/catalog.py's format_data_cap) - it
+# must never be forwarded to IBSng as a literal credit=0, so unlimited
+# plans get this flat value instead. IBSng's group-level policy, not
+# per-user credit magnitude, is what actually governs usage on the
+# -Unlimited groups, so the exact number matters only in being positive.
+# Raised from 10 to 100 on 2026-09-22 by product decision.
+#
+# Metered plans deliberately do NOT use this: they pass their own
+# data_cap_mb, which is what caps that buyer. Flattening every account
+# to one credit - the original form of that request - would have removed
+# per-user quota enforcement, so it was narrowed to the unlimited path.
+UNLIMITED_PLAN_IBSNG_CREDIT = 100
 
 
 class VPNUsernameTakenError(Exception):
@@ -117,8 +119,8 @@ async def create_vpn_user(
 
     # The local row keeps data_cap_mb verbatim (0 stays 0 - that's the
     # "Unlimited" display sentinel); only the IBSng-bound credit is
-    # translated. See _UNLIMITED_IBSNG_CREDIT.
-    ibsng_credit = _UNLIMITED_IBSNG_CREDIT if data_cap_mb == 0 else data_cap_mb
+    # translated. See UNLIMITED_PLAN_IBSNG_CREDIT.
+    ibsng_credit = UNLIMITED_PLAN_IBSNG_CREDIT if data_cap_mb == 0 else data_cap_mb
     await client.create_user(username=username, password=password, group_name=group_name, credit=ibsng_credit)
 
     vpn_user = VPNUser(

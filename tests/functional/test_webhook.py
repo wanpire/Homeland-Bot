@@ -122,11 +122,11 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert len(sent) == 1
-    assert "confirmed" in sent[0][1]["text"].lower()
+    assert "your order has been placed successfully" in sent[0][1]["text"].lower()
 
 
 @pytest.mark.asyncio
-async def test_payment_confirmed_message_in_persian(
+async def test_order_delivery_message_in_persian(
     bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.services.bot_users import record_seen, set_language
@@ -162,7 +162,12 @@ async def test_payment_confirmed_message_in_persian(
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert len(sent) == 1
-    assert "پرداخت تأیید شد" in sent[0][1]["text"]
+    text = sent[0][1]["text"]
+    assert "سفارش شما با موفقیت ثبت شد" in text
+    assert "یوزرنیم:" in text and "پسورد:" in text
+    buttons = {b["text"]: b["callback_data"] for row in sent[0][1]["reply_markup"]["inline_keyboard"] for b in row}
+    assert buttons["📘 آموزش"] == "menu:tutorials"
+    assert buttons["🔙 بازگشت به منوی اصلی"] == "menu:root"
 
 
 @pytest.mark.asyncio
@@ -456,7 +461,7 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     assert len(sent) >= 1
     for _, payload in sent:
         text = payload["text"].lower()
-        assert "payment confirmed" in text or "technical issue" in text
+        assert "order has been placed" in text or "technical issue" in text
 
 
 @pytest.mark.asyncio
