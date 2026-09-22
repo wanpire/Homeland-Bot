@@ -76,7 +76,7 @@ async def send_profile(bot: Bot, telegram_id: int, session: AsyncSession, *, pla
 
 async def send_guide(
     bot: Bot, telegram_id: int, session: AsyncSession, *, protocol_id: int, platform_id: int | None,
-    lang: str, fall_back_to_generic: bool = False,
+    lang: str, fall_back_to_generic: bool = False, notify_if_missing: bool = True,
 ) -> int | None:
     """The tutorial itself. Returns the sent message id, or None when
     nothing was configured (in which case the "not ready" note is sent).
@@ -91,7 +91,12 @@ async def send_guide(
         guide = await get_guide(session, platform_id=None, protocol_id=protocol_id)
 
     if guide is None or (guide.media_file_id is None and guide.body_html is None):
-        await bot.send_message(telegram_id, t("guide_not_ready", lang))
+        # A delivery flow passes notify_if_missing=False: it has just
+        # handed over working credentials and must not apologise for a
+        # guide the customer never asked for. Tutorials keeps the
+        # default, where "not ready" answers an explicit request.
+        if notify_if_missing:
+            await bot.send_message(telegram_id, t("guide_not_ready", lang))
         return None
 
     if guide.media_file_id is not None and guide.media_type is not None:
@@ -156,7 +161,8 @@ async def deliver_setup(
         await send_profile(bot, telegram_id, session, platform_id=platform_id, lang=lang)
 
     guide_message_id = await send_guide(
-        bot, telegram_id, session, protocol_id=protocol_id, platform_id=platform_id, lang=lang
+        bot, telegram_id, session, protocol_id=protocol_id, platform_id=platform_id, lang=lang,
+        notify_if_missing=False,
     )
     await send_download_links(bot, telegram_id, session, protocol=protocol, platform=platform, lang=lang)
     return True, guide_message_id

@@ -117,6 +117,13 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "guide_not_ready": "📚 This guide is not ready yet — please contact support.",
         "connection_profile_prefix": "📡 Connection profile ({name})",
+        "openvpn_pick_platform": (
+            "📥 <b>Download OpenVPN Connect</b>\n\n"
+            "Pick your device and we'll send you the download link."
+        ),
+        "openvpn_link_unavailable": (
+            "⚠️ No download link is configured for that device yet — please contact support."
+        ),
         "download_link_prefix": "📥 App download link:",
         "download_openvpn_links_heading": "📥 Download OpenVPN Connect:",
         "any_platform_label": "Any platform:",
@@ -285,6 +292,13 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "guide_not_ready": "📚 این راهنما هنوز آماده نیست — لطفاً با پشتیبانی تماس بگیرید.",
         "connection_profile_prefix": "📡 پروفایل اتصال ({name})",
+        "openvpn_pick_platform": (
+            "📥 <b>دانلود OpenVPN Connect</b>\n\n"
+            "دستگاه خود را انتخاب کنید تا لینک دانلود برایتان ارسال شود."
+        ),
+        "openvpn_link_unavailable": (
+            "⚠️ برای این دستگاه هنوز لینک دانلودی تنظیم نشده — لطفاً با پشتیبانی تماس بگیرید."
+        ),
         "download_link_prefix": "📥 لینک دانلود اپلیکیشن:",
         "download_openvpn_links_heading": "📥 دانلود OpenVPN Connect:",
         "any_platform_label": "همه دستگاه‌ها:",

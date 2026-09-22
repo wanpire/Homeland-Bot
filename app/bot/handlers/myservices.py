@@ -20,6 +20,7 @@ from app.i18n.texts import t
 from app.services.catalog import get_plan, plan_display_name
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
+from app.services.openvpn_setup import send_openvpn_setup
 from app.services.tutorial_delivery import deliver_setup
 from app.services.tutorials import list_platforms, list_protocols
 from app.services.vpn_users import get_owned_vpn_user, get_service_status, list_services_with_status
@@ -146,10 +147,8 @@ async def myservices_resend_cb(callback: CallbackQuery, lang: str) -> None:
 
             protocol = await session.get(TutorialProtocol, protocol_id)
             if protocol is not None and protocol.label.strip().lower() == "openvpn":
-                delivered, _ = await deliver_setup(
-                    callback.bot, telegram_id, session, protocol_id=protocol_id, platform_id=None, lang=lang
-                )
-                text = t("resent_confirmation", lang) if delivered else t("resend_blocked", lang)
+                await send_openvpn_setup(callback.bot, telegram_id, session, lang=lang)
+                text = t("resent_confirmation", lang)
                 if callback.message is not None:
                     await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user_id, lang))
                 await callback.answer()

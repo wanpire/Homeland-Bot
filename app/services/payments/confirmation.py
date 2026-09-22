@@ -24,6 +24,7 @@ from app.i18n.texts import t
 from app.services.bot_users import get_language
 from app.services.catalog import get_plan
 from app.services.delivery import PURCHASE, RENEWAL, send_account_delivery
+from app.services.openvpn_setup import send_openvpn_setup
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
 from app.services.payments.service import activate_finished_payment
@@ -99,6 +100,10 @@ async def _send_delivery_message(bot: Bot, session: AsyncSession, payment: Payme
         lang=lang,
         fallback_plan_name=payment.group_name,
     )
+    # Paid flows previously ended at the credentials and sent no setup
+    # material at all; this is what makes purchase, renewal and trial
+    # behave alike.
+    await send_openvpn_setup(bot, payment.telegram_id, session, lang=lang)
 
 
 async def _recover_password(payment: Payment, username: str) -> str | None:

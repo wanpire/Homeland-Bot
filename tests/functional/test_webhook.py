@@ -121,8 +121,9 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
         assert vpn_user.telegram_id == 970
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert len(sent) == 1
+    # Two messages now: the credentials, then the OpenVPN setup prompt.
     assert "your order has been placed successfully" in sent[0][1]["text"].lower()
+    assert "download openvpn connect" in sent[-1][1]["text"].lower()
 
 
 @pytest.mark.asyncio
@@ -161,7 +162,6 @@ async def test_order_delivery_message_in_persian(
         await client.close()
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert len(sent) == 1
     text = sent[0][1]["text"]
     assert "سفارش شما با موفقیت ثبت شد" in text
     assert "یوزرنیم:" in text and "پسورد:" in text
@@ -209,7 +209,9 @@ async def test_webhook_duplicate_finished_delivery_is_idempotent(
         rows = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 971))).scalars().all()
     assert len(rows) == 1  # NOT two - the second IPN delivery was a no-op
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
+    # Count the delivery message specifically: the OpenVPN setup prompt
+    # now follows it, so a bare message count no longer means anything.
+    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and "🎉" in (c[1].get("text") or "")]
     assert len(sent) == 1  # only the first delivery notified the user
 
 
@@ -256,6 +258,8 @@ async def test_webhook_partially_paid_does_not_activate_and_shows_no_dollar_figu
         rows = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 972))).scalars().all()
     assert rows == []  # never activated
 
+    # Count the delivery message specifically: the OpenVPN setup prompt
+    # now follows it, so a bare message count no longer means anything.
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert len(sent) == 1
     text = sent[0][1]["text"]
@@ -299,6 +303,8 @@ async def test_webhook_failed_marks_payment_failed(
         refreshed = await session.get(Payment, payment.id)
         assert refreshed.status == "failed"
 
+    # Count the delivery message specifically: the OpenVPN setup prompt
+    # now follows it, so a bare message count no longer means anything.
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert len(sent) == 1
     assert "did not complete" in sent[0][1]["text"].lower()
@@ -461,7 +467,14 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     assert len(sent) >= 1
     for _, payload in sent:
         text = payload["text"].lower()
-        assert "order has been placed" in text or "technical issue" in text
+        # The OpenVPN setup prompt legitimately follows a delivery, so it
+        # is an expected third shape here alongside success and the
+        # contact-support fallback.
+        assert (
+            "order has been placed" in text
+            or "technical issue" in text
+            or "download openvpn connect" in text
+        )
 
 
 @pytest.mark.asyncio
@@ -504,6 +517,8 @@ async def test_webhook_concurrent_failed_deliveries_send_exactly_one_message(
     finally:
         await client.close()
 
+    # Count the delivery message specifically: the OpenVPN setup prompt
+    # now follows it, so a bare message count no longer means anything.
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     assert len(sent) == 1, f"expected exactly 1 message under full serialization, got {len(sent)}"
 

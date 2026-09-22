@@ -79,6 +79,15 @@ Redis (FSM), pydantic-settings, Docker Compose.
 - `app/services/payments/confirmation.py` - the ONE path from "invoice
   paid" to "service provisioned", used by both the Plisio callback and
   the reconciler.
+- `app/services/openvpn_setup.py` - the ONE post-handover setup step,
+  called by purchase, renewal, trial and My Services' resend. Sends the
+  .ovpn config, then four platform buttons (`ovpn:link:<id>`), and only
+  the tapped platform's download link - it replaced a message listing
+  all four at once. It looks up NO guide: none exists for OpenVPN, and
+  the lookup's "not ready" answer was reaching customers mid-purchase.
+  `deliver_setup` passes `notify_if_missing=False` for the same reason;
+  Tutorials keeps the default, where "not ready" answers an explicit
+  request.
 - `app/services/delivery.py` - the ONE account-delivery message, sent by
   all three handover flows (purchase, renewal, trial). Only the headline
   differs; the body, tap-to-copy credentials and the Tutorial/main-menu

@@ -27,7 +27,7 @@ async def test_deliver_setup_blocks_android_l2tp(bot: Any, fake_session: FakeBot
 
 
 @pytest.mark.asyncio
-async def test_deliver_setup_sends_guide_and_credentials_placeholder_when_configured(bot: Any, fake_session: FakeBotSession) -> None:
+async def test_deliver_setup_sends_the_configured_guide(bot: Any, fake_session: FakeBotSession) -> None:
     from app.db.models.tutorial_platform import TutorialPlatform
     from app.db.models.tutorial_protocol import TutorialProtocol
     from app.services.tutorial_delivery import deliver_setup
@@ -36,18 +36,27 @@ async def test_deliver_setup_sends_guide_and_credentials_placeholder_when_config
     async with async_session_maker() as session:
         ios_id = (await session.execute(select(TutorialPlatform).where(TutorialPlatform.label == "iOS"))).scalar_one().id
         l2tp_id = (await session.execute(select(TutorialProtocol).where(TutorialProtocol.label == "L2TP"))).scalar_one().id
-        await upsert_guide(session, platform_id=ios_id, protocol_id=l2tp_id, media_file_id=None, media_type=None)
+        guide = await upsert_guide(
+            session, platform_id=ios_id, protocol_id=l2tp_id, media_file_id=None, media_type=None
+        )
+        # An empty guide row is indistinguishable from a missing one, and
+        # a delivery flow stays silent for both - so give it real content.
+        guide.body_html = "Step 1: open Settings"
+        await session.commit()
 
     async with async_session_maker() as session:
         delivered, guide_message_id = await deliver_setup(bot, 702, session, protocol_id=l2tp_id, platform_id=ios_id)
 
     assert delivered is True
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert len(sent) >= 1
+    assert any("Step 1: open Settings" in (c[1].get("text") or "") for c in sent)
 
 
 @pytest.mark.asyncio
-async def test_deliver_setup_falls_back_gracefully_when_no_guide_configured(bot: Any, fake_session: FakeBotSession) -> None:
+async def test_deliver_setup_is_silent_when_no_guide_is_configured(bot: Any, fake_session: FakeBotSession) -> None:
+    """A delivery flow has just handed over working credentials; it must
+    not apologise for a guide the customer never asked for. Tutorials
+    still reports a missing guide - see test_tutorials_flow.py."""
     from app.db.models.tutorial_platform import TutorialPlatform
     from app.db.models.tutorial_protocol import TutorialProtocol
     from app.services.tutorial_delivery import deliver_setup
@@ -59,7 +68,7 @@ async def test_deliver_setup_falls_back_gracefully_when_no_guide_configured(bot:
 
     assert delivered is True
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert any("not ready" in c[1]["text"].lower() for c in sent)
+    assert not any("not ready" in (c[1].get("text") or "").lower() for c in sent)
 
 
 @pytest.mark.asyncio

@@ -83,6 +83,18 @@ async def _pending_payment(seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
         )
 
 
+def _delivery_message(fake_session: FakeBotSession, chat_id: int) -> dict[str, Any]:
+    """The credentials message specifically. The OpenVPN setup prompt now
+    follows it, so "the last message" is no longer the right one."""
+    for kind, payload in reversed(fake_session.calls):
+        if kind != "sendMessage" or payload.get("chat_id") != chat_id:
+            continue
+        text = payload.get("text") or ""
+        if "🎉" in text:
+            return payload
+    raise AssertionError(f"no delivery message sent to {chat_id}")
+
+
 @pytest.mark.asyncio
 async def test_the_real_production_callback_confirms_the_purchase(
     bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
@@ -355,8 +367,7 @@ async def test_delivery_message_carries_the_order_details_in_english(
 ) -> None:
     payment = await _deliver(bot, seeded_catalog, monkeypatch, 1801)
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1801]
-    text = sent[-1][1]["text"]
+    text = _delivery_message(fake_session, 1801)["text"]
     assert "Your order has been placed successfully" in text
     assert "1 Month" in text
     assert "30 days from first connection" in text
@@ -366,7 +377,7 @@ async def test_delivery_message_carries_the_order_details_in_english(
     assert f"<code>{payment.ibsng_username}</code>" in text
     assert f"<code>{payment.ibsng_password}</code>" in text
 
-    buttons = {b["text"]: b["callback_data"] for row in sent[-1][1]["reply_markup"]["inline_keyboard"] for b in row}
+    buttons = {b["text"]: b["callback_data"] for row in _delivery_message(fake_session, 1801)["reply_markup"]["inline_keyboard"] for b in row}
     assert buttons["📘 Tutorial"] == "menu:tutorials"
     assert buttons["🔙 Back to Main Menu"] == "menu:root"
 
@@ -377,12 +388,11 @@ async def test_delivery_message_is_persian_for_a_persian_buyer(
 ) -> None:
     payment = await _deliver(bot, seeded_catalog, monkeypatch, 1802, lang="fa")
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1802]
-    text = sent[-1][1]["text"]
+    text = _delivery_message(fake_session, 1802)["text"]
     assert "سفارش شما با موفقیت ثبت شد" in text
     assert "روز از زمان اولین اتصال" in text
     assert f"<code>{payment.ibsng_username}</code>" in text
-    buttons = {b["text"] for row in sent[-1][1]["reply_markup"]["inline_keyboard"] for b in row}
+    buttons = {b["text"] for row in _delivery_message(fake_session, 1802)["reply_markup"]["inline_keyboard"] for b in row}
     assert "📘 آموزش" in buttons and "🔙 بازگشت به منوی اصلی" in buttons
 
 
@@ -399,8 +409,7 @@ async def test_unlimited_plan_renders_volume_as_unlimited(
 
     await _deliver(bot, seeded_catalog, monkeypatch, 1803, plan_id=unlimited["id"])
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1803]
-    assert "Unlimited" in sent[-1][1]["text"]
+    assert "Unlimited" in _delivery_message(fake_session, 1803)["text"]
 
 
 @pytest.mark.asyncio
@@ -417,8 +426,7 @@ async def test_missing_password_still_delivers_the_order(
     monkeypatch.setattr(confirmation, "_recover_password", _no_password)
     payment = await _deliver(bot, seeded_catalog, monkeypatch, 1804)
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1804]
-    text = sent[-1][1]["text"]
+    text = _delivery_message(fake_session, 1804)["text"]
     assert "contact support" in text.lower()
     assert payment.ibsng_username in text
     assert "Your order has been placed successfully" in text
@@ -451,5 +459,4 @@ async def test_renewal_reads_the_password_back_from_ibsng(
     finally:
         await client.close()
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage" and c[1]["chat_id"] == 1805]
-    assert "<code>readback99</code>" in sent[-1][1]["text"]
+    assert "<code>readback99</code>" in _delivery_message(fake_session, 1805)["text"]

@@ -54,7 +54,7 @@ def test_texts_key_sets_match_exactly_between_languages() -> None:
     from app.i18n.texts import TEXTS
 
     assert set(TEXTS["en"].keys()) == set(TEXTS["fa"].keys())
-    assert len(TEXTS["en"]) == 98
+    assert len(TEXTS["en"]) == 100
 
 
 def test_texts_format_placeholders_match_between_languages() -> None:

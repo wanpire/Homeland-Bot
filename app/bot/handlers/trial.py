@@ -14,6 +14,7 @@ from app.db.session import async_session_maker
 from app.i18n.texts import t
 from app.services.catalog import list_plans
 from app.services.delivery import TRIAL, send_account_delivery
+from app.services.openvpn_setup import send_openvpn_setup
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
 from app.services.tutorial_delivery import deliver_setup
@@ -176,10 +177,12 @@ async def trial_protocol_cb(callback: CallbackQuery, lang: str) -> None:
         protocol = await session.get(TutorialProtocol, protocol_id)
 
     if protocol is not None and protocol.label.strip().lower() == "openvpn":
+        # Credentials first, then the setup step: the account details are
+        # what the customer is waiting for, and the shared step always
+        # succeeds, so there is nothing left to gate them on.
+        await _send_trial_credentials(callback.bot, callback.from_user.id, lang)
         async with async_session_maker() as session:
-            delivered, _ = await deliver_setup(callback.bot, callback.from_user.id, session, protocol_id=protocol_id, platform_id=None, lang=lang)
-        if delivered:
-            await _send_trial_credentials(callback.bot, callback.from_user.id, lang)
+            await send_openvpn_setup(callback.bot, callback.from_user.id, session, lang=lang)
         await callback.answer()
         return
 
