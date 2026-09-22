@@ -189,7 +189,15 @@ async def test_trial_platform_pick_delivers_and_sends_credentials(dispatcher: An
     await dispatcher.feed_update(bot, make_callback_update(807, f"trial:platform:{ios_id}"))
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert any("ir." in c[1]["text"] and "24" in c[1]["text"] for c in sent)
+    # The trial now delivers through the shared account message: its own
+    # headline, then the same body every paid flow sends.
+    delivery = next(c for c in sent if "Your trial service is ready" in c[1]["text"])
+    text = delivery[1]["text"]
+    assert "ir." in text
+    assert "<b>Plan:</b> Trial" in text
+    assert "1 day from first connection" in text
+    buttons = {b["text"] for row in delivery[1]["reply_markup"]["inline_keyboard"] for b in row}
+    assert "📘 Tutorial" in buttons and "🔙 Back to Main Menu" in buttons
 
 
 async def _deliver_openvpn_trial(dispatcher: Any, bot: Any, telegram_id: int) -> None:
@@ -349,4 +357,6 @@ async def test_trial_ready_credentials_render_in_persian(dispatcher: Any, bot: A
     await dispatcher.feed_update(bot, make_callback_update(822, f"trial:protocol:{openvpn_id}"))
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    assert any("تست رایگان شما آماده است" in c[1]["text"] for c in sent)
+    delivery = next(c for c in sent if "سرویس تست شما آماده است" in c[1]["text"])
+    assert "یوزرنیم:" in delivery[1]["text"]
+    assert "روز از زمان اولین اتصال" in delivery[1]["text"]

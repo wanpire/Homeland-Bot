@@ -107,16 +107,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "trial_already_used": "🎁 You've already used your free trial.",
         "trial_confirm_prompt": "🎁 <b>Free Trial</b> — 24 hours, 1GB of data.\n\nStart your trial?",
         "trial_create_failed": "⚠️ Couldn't create your trial right now. Please try again shortly.",
-        "trial_credentials_unavailable": (
-            "⚠️ Your trial account was created, but we couldn't retrieve your "
-            "credentials right now. Please contact support and they'll send them to you."
-        ),
-        "trial_ready": (
-            "🎁 <b>Your trial is ready.</b>\n\n"
-            "Username: <code>{username}</code>\n"
-            "Password: <code>{password}</code>\n\n"
-            "⏱ Valid for 24 hours from first connection."
-        ),
         "confirm_button": "✅ Confirm",
 
         # --- tutorial_delivery.py ---
@@ -132,20 +122,23 @@ TEXTS: dict[str, dict[str, str]] = {
         "any_platform_label": "Any platform:",
 
         # --- webhook.py ---
-        "order_delivered": (
-            "🎉 Your order has been placed successfully.\n\n"
+        "delivery_headline_purchase": "🎉 Your order has been placed successfully.",
+        "delivery_headline_renewal": "🎉 Your renewal was successful.",
+        "delivery_headline_trial": "🎉 Your trial service is ready.",
+        "day_singular": "day",
+        "day_plural": "days",
+        "delivery_body": (
             "<b>Plan:</b> {plan}\n"
-            "<b>Duration:</b> {days} days from first connection\n"
+            "<b>Duration:</b> {days} {day_word} from first connection\n"
             "<b>Volume:</b> {volume}\n\n"
             "<b>Username:</b> <code>{username}</code>\n"
             "<b>Password:</b> <code>{password}</code>\n\n"
             "Setup instructions and connection details for different platforms and "
             "protocols are available in the Tutorial section of the main menu."
         ),
-        "order_delivered_no_password": (
-            "🎉 Your order has been placed successfully.\n\n"
+        "delivery_body_no_password": (
             "<b>Plan:</b> {plan}\n"
-            "<b>Duration:</b> {days} days from first connection\n"
+            "<b>Duration:</b> {days} {day_word} from first connection\n"
             "<b>Volume:</b> {volume}\n\n"
             "<b>Username:</b> <code>{username}</code>\n"
             "<b>Password:</b> unavailable — please contact support\n\n"
@@ -283,16 +276,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "trial_already_used": "🎁 شما قبلاً از تست رایگان خود استفاده کرده‌اید.",
         "trial_confirm_prompt": "🎁 <b>تست رایگان</b> — ۲۴ ساعت، ۱ گیگابایت حجم.\n\nتست رایگان را شروع می‌کنید؟",
         "trial_create_failed": "⚠️ در حال حاضر امکان ایجاد تست رایگان وجود ندارد. لطفاً کمی بعد دوباره امتحان کنید.",
-        "trial_credentials_unavailable": (
-            "⚠️ حساب تست رایگان شما ساخته شد، اما در حال حاضر امکان دریافت اطلاعات ورود "
-            "وجود ندارد. با پشتیبانی تماس بگیرید تا برایتان ارسال شود."
-        ),
-        "trial_ready": (
-            "🎁 <b>تست رایگان شما آماده است.</b>\n\n"
-            "نام کاربری: <code>{username}</code>\n"
-            "رمز عبور: <code>{password}</code>\n\n"
-            "⏱ به مدت ۲۴ ساعت از اولین اتصال معتبر است."
-        ),
         "confirm_button": "✅ تأیید",
 
         "android_l2tp_unsupported": (
@@ -306,20 +289,23 @@ TEXTS: dict[str, dict[str, str]] = {
         "download_openvpn_links_heading": "📥 دانلود OpenVPN Connect:",
         "any_platform_label": "همه دستگاه‌ها:",
 
-        "order_delivered": (
-            "🎉 سفارش شما با موفقیت ثبت شد.\n\n"
+        "delivery_headline_purchase": "🎉 سفارش شما با موفقیت ثبت شد.",
+        "delivery_headline_renewal": "🎉 تمدید شما با موفقیت انجام شد.",
+        "delivery_headline_trial": "🎉 سرویس تست شما آماده است.",
+        "day_singular": "روز",
+        "day_plural": "روز",
+        "delivery_body": (
             "<b>پلن خریداری‌شده:</b> {plan}\n"
-            "<b>مدت زمان استفاده:</b> {days} روز از زمان اولین اتصال\n"
+            "<b>مدت زمان استفاده:</b> {days} {day_word} از زمان اولین اتصال\n"
             "<b>حجم:</b> {volume}\n\n"
             "<b>یوزرنیم:</b> <code>{username}</code>\n"
             "<b>پسورد:</b> <code>{password}</code>\n\n"
             "آموزش تنظیمات و اطلاعات اتصال برای پلتفرم‌ها و پروتکل‌های مختلف را "
             "می‌توانید از بخش «آموزش» در منوی اصلی دریافت کنید."
         ),
-        "order_delivered_no_password": (
-            "🎉 سفارش شما با موفقیت ثبت شد.\n\n"
+        "delivery_body_no_password": (
             "<b>پلن خریداری‌شده:</b> {plan}\n"
-            "<b>مدت زمان استفاده:</b> {days} روز از زمان اولین اتصال\n"
+            "<b>مدت زمان استفاده:</b> {days} {day_word} از زمان اولین اتصال\n"
             "<b>حجم:</b> {volume}\n\n"
             "<b>یوزرنیم:</b> <code>{username}</code>\n"
             "<b>پسورد:</b> در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید\n\n"

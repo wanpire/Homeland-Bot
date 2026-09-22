@@ -19,11 +19,11 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.delivery import order_delivered_keyboard
 from app.db.models.payment import Payment
 from app.i18n.texts import t
 from app.services.bot_users import get_language
-from app.services.catalog import format_data_cap, get_plan, plan_display_name
+from app.services.catalog import get_plan
+from app.services.delivery import PURCHASE, RENEWAL, send_account_delivery
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
 from app.services.payments.service import activate_finished_payment
@@ -81,35 +81,24 @@ async def confirm_paid_payment(bot: Bot, session: AsyncSession, payment: Payment
 
 
 async def _send_delivery_message(bot: Bot, session: AsyncSession, payment: Payment, username: str) -> None:
-    """The one message a buyer gets for a completed order - purchase and
-    renewal alike, so there is a single format to keep correct."""
+    """Purchases and renewals deliver through the same shared message the
+    trial flow uses - only the headline differs."""
     lang = (await get_language(session, payment.telegram_id)) or "en"
     plan = await get_plan(session, payment.plan_id) if payment.plan_id is not None else None
-    password = await _recover_password(payment, username)
-
-    fields = {
-        "plan": plan_display_name(plan, lang) if plan is not None else payment.group_name,
-        "days": plan.duration_days if plan is not None else "—",
-        # The snapshot on the payment, not the plan's current value: an
-        # admin editing the catalog mid-payment must never change what
-        # this buyer was actually sold.
-        "volume": format_data_cap(payment.data_cap_mb, lang),
-        "username": username,
-    }
-    if password:
-        text = t("order_delivered", lang, password=password, **fields)
-    else:
-        text = t("order_delivered_no_password", lang, **fields)
-
-    try:
-        await bot.send_message(payment.telegram_id, text, reply_markup=order_delivered_keyboard(lang))
-    except TelegramForbiddenError:
-        # The service IS provisioned; the buyer has merely blocked the
-        # bot. Never turn that into a failure that re-provisions later.
-        logger.warning(
-            "Payment %s: activated but could not notify user %s - bot is blocked",
-            payment.id, payment.telegram_id,
-        )
+    await send_account_delivery(
+        bot,
+        payment.telegram_id,
+        kind=RENEWAL if payment.purpose == "renew" else PURCHASE,
+        plan=plan,
+        # The snapshot on the payment, never the plan's current value: an
+        # admin editing the catalog mid-payment must not change what this
+        # buyer was actually sold.
+        data_cap_mb=payment.data_cap_mb,
+        username=username,
+        password=await _recover_password(payment, username),
+        lang=lang,
+        fallback_plan_name=payment.group_name,
+    )
 
 
 async def _recover_password(payment: Payment, username: str) -> str | None:

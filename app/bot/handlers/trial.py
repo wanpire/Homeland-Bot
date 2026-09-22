@@ -13,6 +13,7 @@ from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.i18n.texts import t
 from app.services.catalog import list_plans
+from app.services.delivery import TRIAL, send_account_delivery
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
 from app.services.tutorial_delivery import deliver_setup
@@ -33,17 +34,14 @@ _MAX_CREATE_ATTEMPTS = 3
 
 
 async def _send_trial_credentials(bot: Bot, telegram_id: int, lang: str) -> None:
-    """deliver_setup (Task 3) deliberately does NOT send the account's
-    username/password - it's a generic (platform, protocol) -> content
-    function reused later by Buy/Renew, which won't always want the
-    same trial-specific closing message. The credentials themselves were
-    generated back in trial_confirm_cb, a separate callback invocation
-    with nothing carried forward (no FSM state, by design - see the
-    spec's rationale for not putting a password in callback_data), so
-    they're looked up fresh here: the just-created VPNUser row gives the
-    username, and IBSngClient.get_user_password re-reads the password
-    IBSng already has stored for it (same accessor AloBot's own renew
-    flow uses to re-show an existing password)."""
+    """The trial's credentials were generated in an earlier callback with
+    nothing carried forward (no FSM state, by design - a password must
+    never travel in callback_data), so they are looked up fresh here: the
+    just-created VPNUser row gives the username, and IBSng re-reads the
+    password it stored.
+
+    The message itself is the shared one every delivery flow sends - see
+    app/services/delivery.py."""
     async with async_session_maker() as session:
         vpn_user = (
             await session.execute(
@@ -53,45 +51,42 @@ async def _send_trial_credentials(bot: Bot, telegram_id: int, lang: str) -> None
                 .limit(1)
             )
         ).scalar_one_or_none()
-    if vpn_user is None:
-        return
+        if vpn_user is None:
+            return
+        trial_plans = await list_plans(session, category="trial")
+        plan = trial_plans[0] if trial_plans else None
 
+    password: str | None = None
     try:
         async with IBSngClient() as client:
             password = await client.get_user_password(username=vpn_user.ibsng_username)
-
         if password is None:
-            # get_user_password returns None when IBSng has no such user,
-            # or when its getUserInfo response carries no stored
-            # normal_password - either way there is nothing to show, and
-            # rendering it would print a literal "None" as the password.
+            # IBSng has no such user, or its getUserInfo response carries
+            # no stored password. The account still exists, so the
+            # delivery message degrades to its no-password variant rather
+            # than printing a literal "None".
             logger.error(
                 "IBSng returned no password for just-created trial account %r (telegram_id=%s)",
                 vpn_user.ibsng_username,
                 telegram_id,
             )
-            await bot.send_message(telegram_id, t("trial_credentials_unavailable", lang))
-            return
-
-        await bot.send_message(
-            telegram_id, t("trial_ready", lang, username=vpn_user.ibsng_username, password=password)
-        )
-    except Exception:
-        # The account exists but we couldn't hand over its credentials.
-        # Failing silently here would leave the user with a delivered
-        # guide, a real trial account, and no way to log in - so tell
-        # them explicitly to contact support (there is no self-service
-        # "show me my credentials again" flow yet; that belongs to the
-        # My Services plan).
+    except IBSngError:
         logger.exception(
-            "Could not deliver trial credentials for %r (telegram_id=%s)",
+            "Could not read the trial password back for %r (telegram_id=%s)",
             vpn_user.ibsng_username,
             telegram_id,
         )
-        try:
-            await bot.send_message(telegram_id, t("trial_credentials_unavailable", lang))
-        except Exception:
-            logger.exception("Could not deliver the credentials-unavailable message to telegram_id=%s", telegram_id)
+
+    await send_account_delivery(
+        bot,
+        telegram_id,
+        kind=TRIAL,
+        plan=plan,
+        data_cap_mb=vpn_user.data_cap_mb,
+        username=vpn_user.ibsng_username,
+        password=password,
+        lang=lang,
+    )
 
 
 @router.callback_query(F.data == "menu:trial")

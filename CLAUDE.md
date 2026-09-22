@@ -78,10 +78,16 @@ Redis (FSM), pydantic-settings, Docker Compose.
   Coins come from `PLISIO_PAY_CURRENCIES`.
 - `app/services/payments/confirmation.py` - the ONE path from "invoice
   paid" to "service provisioned", used by both the Plisio callback and
-  the reconciler. It also sends the single order-delivery message
-  (plan, duration, volume, tap-to-copy credentials, Tutorial and main
-  menu buttons) for purchases and renewals alike; a renewal's password
-  is read back from IBSng, since only a purchase carries one.
+  the reconciler.
+- `app/services/delivery.py` - the ONE account-delivery message, sent by
+  all three handover flows (purchase, renewal, trial). Only the headline
+  differs; the body, tap-to-copy credentials and the Tutorial/main-menu
+  buttons are shared, so never build this text anywhere else. Callers
+  pass `data_cap_mb` themselves: a paid order passes the snapshot on its
+  payment, a trial passes the trial plan's value. A purchase carries its
+  password; a renewal and a trial read it back from IBSng, and an
+  unreadable one degrades to the no-password variant rather than looking
+  like a failure.
   `UNLIMITED_PLAN_IBSNG_CREDIT` in `app/services/vpn_users.py` is the
   flat credit for unlimited plans (100); metered plans keep passing
   their own data cap, which is what caps that buyer. `app/services/payments/reconcile.py` sweeps every open
