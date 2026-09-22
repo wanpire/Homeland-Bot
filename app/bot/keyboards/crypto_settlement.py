@@ -19,7 +19,7 @@ NETWORK_LABELS: dict[str, str] = {
 def crypto_settlement_status_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Edit", callback_data="adm:settings:crypto:edit")
-    builder.button(text="⬅️ Back to Settings", callback_data="adm:settings")
+    builder.button(text="⬅️ Back to Financial", callback_data="adm:fin")
     builder.adjust(1)
     return builder.as_markup()
 

@@ -14,6 +14,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.filters.admin import IsFullAdmin
+from app.bot.keyboards.admin import back_to_financial_keyboard
 from app.bot.keyboards.admin_settings import (
     back_to_settings_keyboard,
     settings_edit_cancel_keyboard,
@@ -353,7 +354,7 @@ async def manage_plan_detail_cb(callback: CallbackQuery, state: FSMContext) -> N
         plan = await get_plan(session, plan_id)
     if plan is None:
         if callback.message is not None:
-            await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+            await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_financial_keyboard())
         await callback.answer()
         return
     if callback.message is not None:
@@ -368,7 +369,7 @@ async def manage_plan_edit_price_cb(callback: CallbackQuery, state: FSMContext) 
         plan = await get_plan(session, plan_id)
     if plan is None:
         if callback.message is not None:
-            await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+            await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_financial_keyboard())
         await callback.answer()
         return
     await state.set_state(EditPlanPriceStates.price)
@@ -392,7 +393,7 @@ async def manage_plan_receive_price(message: Message, state: FSMContext) -> None
     plan_id = data.get("plan_id")
     if plan_id is None:
         await state.clear()
-        await message.answer(_LOST_PLAN_CONTEXT_TEXT, reply_markup=back_to_settings_keyboard())
+        await message.answer(_LOST_PLAN_CONTEXT_TEXT, reply_markup=back_to_financial_keyboard())
         return
     raw = (message.text or "").strip()
 
@@ -409,7 +410,7 @@ async def manage_plan_receive_price(message: Message, state: FSMContext) -> None
         plan = await get_plan(session, plan_id)
         if plan is None:
             await state.clear()
-            await message.answer("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+            await message.answer("⚠️ Plan not found.", reply_markup=back_to_financial_keyboard())
             return
         old_price = plan.price_usd
         updated = await update_plan(session, plan_id, price_usd=new_price)
@@ -439,7 +440,7 @@ async def manage_plan_toggle_active_cb(callback: CallbackQuery, state: FSMContex
         plan = await get_plan(session, plan_id)
         if plan is None:
             if callback.message is not None:
-                await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_settings_keyboard())
+                await callback.message.edit_text("⚠️ Plan not found.", reply_markup=back_to_financial_keyboard())
             await callback.answer()
             return
         # Price floor: a plan must never go live at the $0.00 placeholder
@@ -515,7 +516,7 @@ async def crypto_settlement_receive_address(message: Message, state: FSMContext)
     network = data.get("network")
     if network not in NETWORK_LABELS:
         await state.clear()
-        await message.answer("⚠️ Something went wrong — please start again.", reply_markup=back_to_settings_keyboard())
+        await message.answer("⚠️ Something went wrong — please start again.", reply_markup=back_to_financial_keyboard())
         return
 
     address = (message.text or "").strip()
@@ -586,7 +587,7 @@ async def settings_crypto_coins_cb(callback: CallbackQuery, state: FSMContext) -
     # No inline permission check: this whole router is gated by IsFullAdmin.
     await state.clear()
     if callback.message is not None:
-        await callback.message.edit_text(await _crypto_coins_text(), reply_markup=back_to_settings_keyboard())
+        await callback.message.edit_text(await _crypto_coins_text(), reply_markup=back_to_financial_keyboard())
     await callback.answer()
 
 
@@ -611,5 +612,5 @@ async def settings_reconcile_cb(callback: CallbackQuery, state: FSMContext) -> N
     if counts["errors"]:
         text += "\n\n⚠️ Some lookups failed — check the logs."
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=back_to_settings_keyboard())
+        await callback.message.edit_text(text, reply_markup=back_to_financial_keyboard())
     await callback.answer()

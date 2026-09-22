@@ -15,7 +15,7 @@ def discount_list_keyboard(discounts: list[DiscountCode]) -> InlineKeyboardMarku
         marker = "✅" if d.is_active else "⛔️"
         builder.button(text=f"{marker} {d.code} (-{d.percent}%)", callback_data=f"adm:discounts:view:{d.id}")
     builder.button(text="➕ New Discount Code", callback_data="adm:discounts:new")
-    builder.button(text="⬅️ Back to Admin Panel", callback_data="adm:root")
+    builder.button(text="⬅️ Back to Financial", callback_data="adm:fin")
     builder.adjust(1)
     return builder.as_markup()
 

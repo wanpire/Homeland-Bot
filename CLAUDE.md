@@ -108,6 +108,15 @@ Redis (FSM), pydantic-settings, Docker Compose.
   third-party ones. Plisio takes its key as a query parameter and httpx
   logs full URLs at INFO, which leaked the live key into the container
   logs until this landed.
+- Admin panel tree (regrouped 2026-09-23): Users · Financial · Reports ·
+  Tutorials & Profiles · Broadcast · System. Financial holds Discount
+  Codes, Manage Plans and the crypto screens; System holds the plumbing
+  plus Manage Admins. **Never rename an `adm:*` callback** - a keyboard
+  sitting in an admin's chat history is a live control surface, so
+  screens are re-parented (which menu lists them, where Back points)
+  and never renamed. A button a tier cannot use is hidden, not
+  shown-and-filtered; a handler that refuses a tap itself must say so,
+  because it consumes the callback and `admin_fallback` never sees it.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

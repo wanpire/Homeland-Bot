@@ -60,14 +60,17 @@ async def test_support_admin_sees_root_menu_without_sales_or_full_buttons(
 
 
 @pytest.mark.asyncio
-async def test_sales_admin_sees_discounts_but_not_settings(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+async def test_sales_admin_sees_money_sections_but_not_system(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+    """Discount Codes moved into Financial when the panel was regrouped,
+    so a sales admin now reaches it one level down."""
     await _seed_admin(602, "sales")
 
     await dispatcher.feed_update(bot, make_callback_update(602, "adm:root"))
 
     buttons = _buttons(fake_session)
-    assert "🏷 Discount Codes" in buttons
-    assert "⚙️ Settings" not in buttons
+    assert "💰 Financial" in buttons
+    assert "📊 Reports" in buttons
+    assert "⚙️ System" not in buttons
     assert "📢 Broadcast" not in buttons
 
 
@@ -77,8 +80,9 @@ async def test_full_admin_sees_every_section(dispatcher: Any, bot: Any, fake_ses
 
     buttons = _buttons(fake_session)
     assert "📢 Broadcast" in buttons
-    assert "🏷 Discount Codes" in buttons
-    assert "⚙️ Settings" in buttons
+    assert "💰 Financial" in buttons
+    assert "📊 Reports" in buttons
+    assert "⚙️ System" in buttons
 
 
 @pytest.mark.asyncio

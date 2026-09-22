@@ -141,10 +141,12 @@ async def test_admin_root_menu_hides_manage_admins_for_non_full_admin(
 
 
 @pytest.mark.asyncio
-async def test_admin_root_menu_shows_manage_admins_for_full_admin(
+async def test_system_menu_shows_manage_admins_for_full_admin(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession
 ) -> None:
-    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:root"))
+    """Manage Admins moved from the root menu into System when the panel
+    was regrouped; its callback is unchanged."""
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:settings"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     buttons = [b["text"] for row in edited[-1][1]["reply_markup"]["inline_keyboard"] for b in row]

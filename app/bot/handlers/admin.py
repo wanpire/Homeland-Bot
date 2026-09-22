@@ -4,8 +4,15 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
-from app.bot.keyboards.admin import admin_root_menu, admin_settings_menu, admin_users_menu
+from app.bot.keyboards.admin import (
+    admin_financial_menu,
+    admin_root_menu,
+    admin_settings_menu,
+    admin_users_menu,
+    back_to_admin_root_keyboard,
+)
 from app.bot.keyboards.tutorial_admin import tutorial_admin_root_keyboard
+from app.bot.handlers.admin_fallback import NO_PERMISSION_TEXT
 from app.db.session import async_session_maker
 from app.services.admin_users import has_level
 
@@ -13,7 +20,7 @@ router = Router(name="admin")
 
 _ROOT_TEXT = "🛠 <b>Admin Panel</b>"
 _USERS_TEXT = "👤 <b>Users</b>"
-_SETTINGS_TEXT = "⚙️ <b>Settings</b>"
+_SETTINGS_TEXT = "⚙️ <b>System</b>"
 _TUTORIALS_TEXT = "📚 Tutorials & Profiles admin:"
 
 
@@ -66,4 +73,69 @@ async def admin_tutorials_cb(callback: CallbackQuery, state: FSMContext) -> None
     await state.clear()
     if callback.message is not None:
         await callback.message.edit_text(_TUTORIALS_TEXT, reply_markup=tutorial_admin_root_keyboard())
+    await callback.answer()
+
+
+_FINANCIAL_TEXT = "💰 <b>Financial</b>"
+_REPORTS_TEXT = (
+    "📊 <b>Reports</b>\n\n"
+    "Signups, active vs expired accounts, revenue, trial conversion and "
+    "top plans by sales arrive in Part 4 of the admin epic."
+)
+_FINANCIAL_SOON_TEXT = (
+    "💰 <b>{title}</b>\n\n"
+    "This screen arrives in Part 2 of the admin epic. Discount Codes and "
+    "Manage Plans below it are live today."
+)
+
+
+@router.callback_query(F.data == "adm:fin")
+async def admin_financial_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    async with async_session_maker() as session:
+        if not await has_level(session, callback.from_user.id, "sales"):
+            # Said out loud rather than silently dropped: this handler
+            # consumes the callback, so admin_fallback never gets the
+            # chance to show its alert, and a stale keyboard would
+            # otherwise just spin with no explanation.
+            await callback.answer(NO_PERMISSION_TEXT, show_alert=True)
+            return
+        is_full = await has_level(session, callback.from_user.id, "full")
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.edit_text(
+            _FINANCIAL_TEXT, reply_markup=admin_financial_menu(is_full_admin=is_full)
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:reports")
+async def admin_reports_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    async with async_session_maker() as session:
+        if not await has_level(session, callback.from_user.id, "sales"):
+            await callback.answer(NO_PERMISSION_TEXT, show_alert=True)
+            return
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.edit_text(_REPORTS_TEXT, reply_markup=back_to_admin_root_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data.in_({"adm:fin:revenue", "adm:fin:payments"}))
+async def admin_financial_placeholder_cb(callback: CallbackQuery, state: FSMContext) -> None:
+    """Revenue and Payments are listed from Part 1 so the menu matches
+    the agreed tree, but they are built in Part 2. Without this handler
+    they would fall through to admin_fallback and tell an admin they
+    lack permission, which would be simply untrue."""
+    async with async_session_maker() as session:
+        if not await has_level(session, callback.from_user.id, "sales"):
+            await callback.answer(NO_PERMISSION_TEXT, show_alert=True)
+            return
+        is_full = await has_level(session, callback.from_user.id, "full")
+    await state.clear()
+    title = "Revenue Overview" if callback.data.endswith("revenue") else "Payments"
+    if callback.message is not None:
+        await callback.message.edit_text(
+            _FINANCIAL_SOON_TEXT.format(title=title),
+            reply_markup=admin_financial_menu(is_full_admin=is_full),
+        )
     await callback.answer()

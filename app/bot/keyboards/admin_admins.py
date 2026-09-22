@@ -15,7 +15,7 @@ def admin_admins_list_keyboard(rows: list[tuple[AdminUser, str]]) -> InlineKeybo
             callback_data=f"adm:admins:remove:{admin.telegram_id}",
         )
     builder.button(text="➕ Add Admin", callback_data="adm:admins:add", style="success")
-    builder.button(text="⬅️ Back to Admin Panel", callback_data="adm:root")
+    builder.button(text="⬅️ Back to System", callback_data="adm:settings")
     sizes = [1] * len(rows) + [1, 1]
     builder.adjust(*sizes)
     return builder.as_markup()

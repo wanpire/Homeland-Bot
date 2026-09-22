@@ -30,7 +30,7 @@ def manage_plans_list_keyboard(plans_by_category: dict[str, list[Plan]]) -> Inli
                 callback_data=f"adm:settings:plan:{plan.id}",
             )
             sizes.append(1)
-    builder.button(text="⬅️ Back to Settings", callback_data="adm:settings")
+    builder.button(text="⬅️ Back to Financial", callback_data="adm:fin")
     sizes.append(1)
     builder.adjust(*sizes)
     return builder.as_markup()
