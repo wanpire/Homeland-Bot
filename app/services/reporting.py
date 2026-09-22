@@ -21,6 +21,7 @@ from app.db.models.bot_user import BotUser
 from app.db.models.discount_code import DiscountCode
 from app.db.models.payment import Payment
 from app.db.models.plan import Plan
+from app.db.models.vpn_user import VPNUser
 
 PAGE_SIZE = 8
 
@@ -275,3 +276,134 @@ async def discount_performance(session: AsyncSession, discount_code_id: int) -> 
         revenue=Decimal(str(row[1])),
         discount_given=Decimal(str(row[2])),
     )
+
+
+# --- Reports (epic part 4) -------------------------------------------
+#
+# Deliberately beside the Financial queries rather than in a module of
+# their own: both answer "how is the business doing", and splitting them
+# would invite a second definition of revenue or of a period boundary.
+
+#: Live IBSng status costs one round trip per account, so the accounts
+#: breakdown checks the newest few and says so rather than letting one
+#: screen's cost grow with the customer base.
+ACCOUNT_SAMPLE_SIZE = 20
+
+
+async def signup_count(session: AsyncSession, *, period: str) -> tuple[int, int]:
+    """(in period, all time). Counts people who started the bot, which is
+    not the same as buyers - the pair makes that visible."""
+    start = period_start(period)
+    filters = [] if start is None else [BotUser.first_seen_at >= start]
+    in_period = (await session.execute(select(func.count(BotUser.id)).where(*filters))).scalar_one()
+    all_time = (await session.execute(select(func.count(BotUser.id)))).scalar_one()
+    return in_period, all_time
+
+
+@dataclass
+class AccountBreakdown:
+    counts: dict[str, int]
+    checked: int
+    total: int
+
+    @property
+    def sampled(self) -> bool:
+        return self.checked < self.total
+
+
+async def account_breakdown(session: AsyncSession, client, *, limit: int = ACCOUNT_SAMPLE_SIZE) -> AccountBreakdown:  # type: ignore[no-untyped-def]
+    """Active vs expired can only come from IBSng: VPNUser.expires_at is
+    never written by anything in this codebase. Checking every account
+    would make this unbounded, so the newest `limit` are checked and both
+    numbers are reported - a report that silently sampled would be worse
+    than one that says it sampled."""
+    from app.services.vpn_users import get_service_status
+
+    total = (await session.execute(select(func.count(VPNUser.id)))).scalar_one()
+    usernames = (
+        await session.execute(
+            select(VPNUser.ibsng_username).order_by(VPNUser.id.desc()).limit(limit)
+        )
+    ).scalars().all()
+
+    counts: dict[str, int] = {}
+    for username in usernames:
+        status, _ = await get_service_status(client, username)
+        counts[status] = counts.get(status, 0) + 1
+    return AccountBreakdown(counts=counts, checked=len(usernames), total=total)
+
+
+@dataclass
+class TrialConversion:
+    trials: int
+    converted: int
+
+    @property
+    def rate(self) -> Decimal:
+        if not self.trials:
+            return Decimal("0.0")
+        return (Decimal(self.converted) * 100 / Decimal(self.trials)).quantize(Decimal("0.1"))
+
+
+async def trial_conversion(session: AsyncSession, *, period: str) -> TrialConversion:
+    """Trials started in the period, and how many of those same people
+    have ever paid. The numerator is deliberately NOT period-scoped: a
+    trial taken on the 30th and paid on the 2nd is still a conversion."""
+    start = period_start(period)
+    filters = [VPNUser.is_trial.is_(True)]
+    if start is not None:
+        filters.append(VPNUser.created_at >= start)
+
+    trial_ids = set(
+        (await session.execute(select(VPNUser.telegram_id).where(*filters))).scalars().all()
+    )
+    if not trial_ids:
+        return TrialConversion(trials=0, converted=0)
+
+    payers = set(
+        (
+            await session.execute(
+                select(Payment.telegram_id).where(
+                    Payment.status == PAID, Payment.telegram_id.in_(trial_ids)
+                )
+            )
+        ).scalars().all()
+    )
+    return TrialConversion(trials=len(trial_ids), converted=len(trial_ids & payers))
+
+
+@dataclass
+class PlanSales:
+    plan_name: str
+    category: str
+    orders: int
+    revenue: Decimal
+
+
+async def top_plans(session: AsyncSession, *, period: str, limit: int = 5) -> list[PlanSales]:
+    """Ranked by paid orders. Pending and failed rows are excluded, for
+    the same reason they are excluded from revenue."""
+    start = period_start(period)
+    filters = [Payment.status == PAID]
+    if start is not None:
+        filters.append(_effective_date() >= start)
+
+    rows = (
+        await session.execute(
+            select(
+                Plan.name,
+                Plan.category,
+                func.count(Payment.id),
+                func.coalesce(func.sum(Payment.amount_usd), 0),
+            )
+            .join(Plan, Plan.id == Payment.plan_id)
+            .where(*filters)
+            .group_by(Plan.name, Plan.category)
+            .order_by(func.count(Payment.id).desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        PlanSales(plan_name=name, category=category, orders=orders, revenue=Decimal(str(revenue)))
+        for name, category, orders, revenue in rows
+    ]

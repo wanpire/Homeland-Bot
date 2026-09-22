@@ -9,7 +9,6 @@ from app.bot.keyboards.admin import (
     admin_root_menu,
     admin_settings_menu,
     admin_users_menu,
-    back_to_admin_root_keyboard,
 )
 from app.bot.keyboards.tutorial_admin import tutorial_admin_root_keyboard
 from app.bot.handlers.admin_fallback import NO_PERMISSION_TEXT
@@ -77,11 +76,6 @@ async def admin_tutorials_cb(callback: CallbackQuery, state: FSMContext) -> None
 
 
 _FINANCIAL_TEXT = "💰 <b>Financial</b>"
-_REPORTS_TEXT = (
-    "📊 <b>Reports</b>\n\n"
-    "Signups, active vs expired accounts, revenue, trial conversion and "
-    "top plans by sales arrive in Part 4 of the admin epic."
-)
 @router.callback_query(F.data == "adm:fin")
 async def admin_financial_cb(callback: CallbackQuery, state: FSMContext) -> None:
     async with async_session_maker() as session:
@@ -100,14 +94,3 @@ async def admin_financial_cb(callback: CallbackQuery, state: FSMContext) -> None
         )
     await callback.answer()
 
-
-@router.callback_query(F.data == "adm:reports")
-async def admin_reports_cb(callback: CallbackQuery, state: FSMContext) -> None:
-    async with async_session_maker() as session:
-        if not await has_level(session, callback.from_user.id, "sales"):
-            await callback.answer(NO_PERMISSION_TEXT, show_alert=True)
-            return
-    await state.clear()
-    if callback.message is not None:
-        await callback.message.edit_text(_REPORTS_TEXT, reply_markup=back_to_admin_root_keyboard())
-    await callback.answer()

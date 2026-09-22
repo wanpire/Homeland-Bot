@@ -13,7 +13,7 @@ from app.bot.error_handlers import handle_pool_timeout
 from app.bot.handlers import (
     admin, admin_admins, admin_block, admin_discounts, admin_fallback, admin_renew, admin_settings,
     broadcast, buy, campaign, fallback, financial, myservices, openvpn_setup, renew, trial,
-    tutorial_admin, tutorials, user_admin, users,
+    reports, tutorial_admin, tutorials, user_admin, users,
 )
 from app.bot.middlewares.blocked_user import BlockedUserMiddleware
 from app.bot.middlewares.language import LanguageMiddleware
@@ -69,6 +69,7 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.include_router(admin_settings.router)
     dp.include_router(financial.router)
     dp.include_router(user_admin.router)
+    dp.include_router(reports.router)
     dp.include_router(broadcast.router)
     dp.include_router(campaign.router)
     # MUST stay after every adm:*-handling router above (admin,
