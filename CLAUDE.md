@@ -117,6 +117,12 @@ Redis (FSM), pydantic-settings, Docker Compose.
   and never renamed. A button a tier cannot use is hidden, not
   shown-and-filtered; a handler that refuses a tap itself must say so,
   because it consumes the callback and `admin_fallback` never sees it.
+- `app/services/reporting.py` - the ONE definition of revenue and of a
+  reporting period, read-only and free of aiogram imports so the
+  Financial screens and the Reports screen cannot drift. Revenue means
+  `status == "paid"` and nothing else, dated by `resolved_at` falling
+  back to `created_at`. Refunds are reported if they appear but no
+  refund action exists: nothing in the codebase can set that status.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

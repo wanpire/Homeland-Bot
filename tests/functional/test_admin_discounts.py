@@ -213,3 +213,45 @@ async def test_edit_skips_name_step_and_preserves_code(dispatcher: Any, bot: Any
     assert refreshed.code == "EDITME"
     assert refreshed.percent == Decimal("25")
     assert refreshed.is_public is False
+
+
+@pytest.mark.asyncio
+async def test_discount_detail_shows_performance_from_paid_payments_only(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """A pending order has not earned anything yet, so it must not
+    inflate a code's reported revenue."""
+    import datetime as dt
+    from decimal import Decimal
+
+    from app.db.models.payment import Payment
+    from app.db.session import async_session_maker
+    from app.services.discounts import create_discount_code
+
+    plan_id = next(p["id"] for p in seeded_catalog["plans"] if p["category"] == "scroll")
+    async with async_session_maker() as session:
+        code = await create_discount_code(
+            session, code="PERF10", percent=Decimal("20"), usage_limit=10, plan_ids=None
+        )
+        code_id = code.id
+
+    now = dt.datetime.now(dt.timezone.utc)
+    async with async_session_maker() as session:
+        for amount, original, status in (("8.00", "10.00", "paid"), ("8.00", "10.00", "pending")):
+            session.add(
+                Payment(
+                    telegram_id=515, purpose="purchase", plan_id=plan_id, group_name="2W-1U-Iran-5G",
+                    data_cap_mb=5120, amount_usd=Decimal(amount), original_amount_usd=Decimal(original),
+                    provider="plisio", status=status, discount_code_id=code_id, created_at=now,
+                    resolved_at=now if status == "paid" else None,
+                )
+            )
+        await session.commit()
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, f"adm:discounts:view:{code_id}"))
+
+    text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
+    assert "Performance" in text
+    assert "Paid orders with this code: 1" in text
+    assert "Revenue from this code: $8.00" in text
+    assert "Discount given: $2.00" in text

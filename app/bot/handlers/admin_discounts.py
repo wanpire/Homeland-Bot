@@ -23,6 +23,7 @@ from app.bot.states.admin_discounts import DiscountCodeStates
 from app.db.models.discount_code import DiscountCode
 from app.db.session import async_session_maker
 from app.services.catalog import get_plan, list_plans
+from app.services.reporting import DiscountPerformance, discount_performance
 from app.services.discounts import (
     create_discount_code,
     delete_discount_code,
@@ -60,17 +61,29 @@ async def _scope_text(session: AsyncSession, discount: DiscountCode) -> str:
     return ", ".join(names)
 
 
-def _detail_text(discount: DiscountCode, scope: str) -> str:
+def _detail_text(discount: DiscountCode, scope: str, performance: DiscountPerformance | None = None) -> str:
     limit = "Unlimited" if discount.usage_limit is None else str(discount.usage_limit)
     status = "Active" if discount.is_active else "Inactive"
     visibility = "Public" if discount.is_public else "Private"
-    return (
+    text = (
         f"🏷 <b>{html.escape(discount.code)}</b>\n"
         f"Discount: {discount.percent}%\n"
         f"Usage: {discount.used_count}/{limit}\n"
         f"Plans: {scope}\n"
         f"Status: {status} · {visibility}"
     )
+    if performance is not None:
+        # used_count and paid_payments can legitimately differ: the
+        # counter increments at activation, while the payment rows are
+        # the audit trail. Both are shown rather than one standing in
+        # for the other.
+        text += (
+            "\n\n<b>Performance</b>\n"
+            f"Paid orders with this code: {performance.paid_payments}\n"
+            f"Revenue from this code: ${performance.revenue}\n"
+            f"Discount given: ${performance.discount_given}"
+        )
+    return text
 
 
 async def _render_list() -> tuple[str, InlineKeyboardMarkup]:
@@ -123,7 +136,9 @@ async def discount_view_cb(callback: CallbackQuery) -> None:
             text, keyboard = await _render_list()
         else:
             scope = await _scope_text(session, discount)
-            text, keyboard = _detail_text(discount, scope), discount_detail_keyboard(discount)
+            performance = await discount_performance(session, discount.id)
+            text = _detail_text(discount, scope, performance)
+            keyboard = discount_detail_keyboard(discount)
     if callback.message is not None:
         await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()

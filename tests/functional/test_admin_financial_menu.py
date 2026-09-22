@@ -109,18 +109,22 @@ async def test_support_admin_is_refused_the_money_screens(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("data", ["adm:fin:revenue", "adm:fin:payments"])
-async def test_part_two_placeholders_say_so_rather_than_claiming_no_permission(
-    dispatcher: Any, bot: Any, fake_session: FakeBotSession, data: str
+@pytest.mark.parametrize(
+    ("data", "heading"),
+    [("adm:fin:revenue", "Revenue Overview"), ("adm:fin:payments", "Payments")],
+)
+async def test_financial_children_render_their_real_screens(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, data: str, heading: str
 ) -> None:
-    """Listed from part 1 so the menu matches the agreed tree - without a
-    handler they would fall through to admin_fallback and tell an admin
-    they lack permission, which would be untrue."""
+    """These were part 1 placeholders; part 2 replaced them with the real
+    screens, and neither may fall through to a permission alert."""
     await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, data))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert edited and "part 2" in edited[-1][1]["text"].lower()
-    assert "🏷 Discount Codes" in _buttons(fake_session)
+    assert edited and heading in edited[-1][1]["text"]
+    answered = [c for c in fake_session.calls if c[0] == "answerCallbackQuery"]
+    assert not any("permission" in (c[1].get("text") or "").lower() for c in answered)
+
 
 
 @pytest.mark.asyncio
