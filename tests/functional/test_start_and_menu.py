@@ -115,3 +115,42 @@ async def test_main_menu_includes_language_button(dispatcher: Any, bot: Any, fak
     _, data = [call for call in fake_session.calls if call[0] == "sendMessage"][0]
     buttons = [btn["text"] for row in data["reply_markup"]["inline_keyboard"] for btn in row]
     assert "🌐 Language" in buttons
+
+
+@pytest.mark.asyncio
+async def test_persian_main_menu_swaps_the_two_columns(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Telegram lays a row out left-to-right whatever the text, so a
+    Persian menu has to be reversed for the reading order to come out
+    right: the first item of each pair belongs in the right-hand column."""
+    from app.bot.middlewares import language as language_mw
+
+    async def _fa(session: Any, telegram_id: int) -> str:
+        return "fa"
+
+    monkeypatch.setattr(language_mw, "get_language", _fa)
+    await dispatcher.feed_update(bot, make_message_update(931, "/start"))
+
+    rows = [[b["text"] for b in row] for row in _last_sent(fake_session)["reply_markup"]["inline_keyboard"]]
+    assert rows[0] == ["♻️ تمدید سرویس", "🔑 خرید اشتراک"]
+    assert rows[1] == ["🛍 سرویس‌های من", "🎁 تست رایگان"]
+    assert rows[2] == ["☎️ پشتیبانی", "📚 آموزش‌ها"]
+    assert rows[3] == ["🌐 زبان"]
+
+
+@pytest.mark.asyncio
+async def test_english_main_menu_keeps_its_column_order(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """Only the RTL layout is mirrored - English must be untouched."""
+    await dispatcher.feed_update(bot, make_message_update(932, "/start"))
+
+    rows = [[b["text"] for b in row] for row in _last_sent(fake_session)["reply_markup"]["inline_keyboard"]]
+    assert rows[0] == ["🔑 Buy Subscription", "♻️ Renew Service"]
+    assert rows[1] == ["🎁 Free Trial", "🛍 My Services"]
+    assert rows[2] == ["📚 Tutorials", "☎️ Support"]
+
+
+def _last_sent(fake_session: FakeBotSession) -> dict[str, Any]:
+    return [c for c in fake_session.calls if c[0] == "sendMessage"][-1][1]

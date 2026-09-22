@@ -9,22 +9,44 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.i18n.texts import t
 
 
+#: Languages whose menus are laid out right-to-left, so the pair in each
+#: two-button row is swapped: the first item belongs under the reader's
+#: eye, which in Persian is the right-hand column, not the left.
+_RTL_LANGS = frozenset({"fa"})
+
+
 def main_menu(*, is_admin: bool, lang: str) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str, str | None]]] = [
+        [
+            (t("menu_buy", lang), "menu:buy", "success"),
+            (t("menu_renew", lang), "menu:renew", "success"),
+        ],
+        [
+            (t("menu_trial", lang), "menu:trial", "primary"),
+            (t("menu_myservices", lang), "menu:myservices", "primary"),
+        ],
+        [
+            (t("menu_tutorials", lang), "menu:tutorials", "danger"),
+            (t("menu_support", lang), "menu:support", "danger"),
+        ],
+        [(t("menu_language", lang), "menu:language", None)],
+    ]
+    if is_admin:
+        # Admin-facing, so English-only by project convention.
+        rows.append([("🛠 Admin Panel", "adm:root", None)])
+
     builder = InlineKeyboardBuilder()
     sizes: list[int] = []
-
-    builder.button(text=t("menu_buy", lang), callback_data="menu:buy", style="success")
-    builder.button(text=t("menu_renew", lang), callback_data="menu:renew", style="success")
-    builder.button(text=t("menu_trial", lang), callback_data="menu:trial", style="primary")
-    builder.button(text=t("menu_myservices", lang), callback_data="menu:myservices", style="primary")
-    builder.button(text=t("menu_tutorials", lang), callback_data="menu:tutorials", style="danger")
-    builder.button(text=t("menu_support", lang), callback_data="menu:support", style="danger")
-    builder.button(text=t("menu_language", lang), callback_data="menu:language")
-    sizes += [2, 2, 2, 1]
-
-    if is_admin:
-        builder.button(text="🛠 Admin Panel", callback_data="adm:root")
-        sizes.append(1)
+    for row in rows:
+        # Telegram lays a row out left-to-right whatever the text, so an
+        # RTL menu has to be reversed here for the reading order to come
+        # out right. Single-button rows are unaffected.
+        for text, callback_data, style in (list(reversed(row)) if lang in _RTL_LANGS else row):
+            if style is None:
+                builder.button(text=text, callback_data=callback_data)
+            else:
+                builder.button(text=text, callback_data=callback_data, style=style)
+        sizes.append(len(row))
 
     builder.adjust(*sizes)
     return builder.as_markup()
