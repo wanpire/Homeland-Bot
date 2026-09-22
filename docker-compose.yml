@@ -4,6 +4,10 @@ services:
     env_file: .env
     ports:
       - "${WEBHOOK_PORT:-8090}:${WEBHOOK_PORT:-8090}"
+    volumes:
+      # Nightly pg_dump output, on the host so a lost container never
+      # takes the backups with it. See app/services/backup.py.
+      - ./backups:/backups
     networks:
       - default
     depends_on:

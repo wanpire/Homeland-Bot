@@ -6,15 +6,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.bot_user import BotUser
 
 
-async def record_seen(session: AsyncSession, telegram_id: int, username: str | None) -> None:
+async def record_seen(session: AsyncSession, telegram_id: int, username: str | None) -> bool:
+    """Returns True when this call created the row, i.e. a genuinely new
+    user. The operational log needs that distinction: it fires on every
+    update, and "new user" must mean the first one, not each one."""
     row = (
         await session.execute(select(BotUser).where(BotUser.telegram_id == telegram_id))
     ).scalar_one_or_none()
+    created = row is None
     if row is None:
         session.add(BotUser(telegram_id=telegram_id, username=username))
     elif row.username != username:
         row.username = username
     await session.commit()
+    return created
 
 
 async def is_blocked(session: AsyncSession, telegram_id: int) -> bool:

@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # Each must also have a wallet configured on the Plisio account.
     plisio_pay_currencies: str = "LTC,TON,USDT_TON,USDT_TRX,TRX"
 
+    # Telegram chat id of the operational log group (negative for a
+    # supergroup). A string rather than an int so "unset" needs no
+    # sentinel number; blank disables every operational log entry, which
+    # keeps the feature opt-in and leaves local runs untouched.
+    admin_log_chat_id: str = ""
+
     # Used only to build Plisio's optional success_invoice_url /
     # fail_invoice_url (a deep link back into the bot from the hosted
     # invoice page) - blank means those params are simply omitted. Real

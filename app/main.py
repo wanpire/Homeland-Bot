@@ -22,6 +22,8 @@ from app.bot.middlewares.private_chat_only import PrivateChatOnlyMiddleware
 from app.bot.middlewares.user_tracking import UserTrackingMiddleware
 from app.config import get_settings
 from app.logging_setup import install_secret_redaction
+from app.services.backup import run_backup_loop
+from app.services.health import run_health_loop
 from app.services.payments.reconcile import run_reconcile_loop
 from app.services.reminders import run_reminder_loop
 from app.webhook import create_webhook_app
@@ -123,6 +125,10 @@ async def main() -> None:
     # Finishes any paid invoice whose activation failed while IBSng was
     # unreachable, after Plisio has given up retrying its callback.
     reconcile_task = asyncio.create_task(run_reconcile_loop(bot))
+    # Operational logging: health posts only on a state change, backups
+    # run nightly. Both are silent unless ADMIN_LOG_CHAT_ID is set.
+    health_task = asyncio.create_task(run_health_loop(bot))
+    backup_task = asyncio.create_task(run_backup_loop(bot))
 
     try:
         logger.info("Starting polling...")
@@ -130,6 +136,8 @@ async def main() -> None:
     finally:
         reminder_task.cancel()
         reconcile_task.cancel()
+        health_task.cancel()
+        backup_task.cancel()
         await runner.cleanup()
         await bot.session.close()
 

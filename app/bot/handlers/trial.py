@@ -13,6 +13,7 @@ from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.i18n.texts import t
 from app.services.catalog import list_plans
+from app.services.adminlog import TRIAL as LOG_TRIAL, log_event
 from app.services.delivery import TRIAL, send_account_delivery
 from app.services.openvpn_setup import send_openvpn_setup
 from app.services.ibsng.client import IBSngClient
@@ -87,6 +88,13 @@ async def _send_trial_credentials(bot: Bot, telegram_id: int, lang: str) -> None
         username=vpn_user.ibsng_username,
         password=password,
         lang=lang,
+    )
+    await log_event(
+        bot,
+        LOG_TRIAL,
+        User=str(telegram_id),
+        Plan=plan.name if plan is not None else "Trial",
+        Account=vpn_user.ibsng_username,
     )
 
 

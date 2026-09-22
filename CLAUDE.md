@@ -132,6 +132,15 @@ Redis (FSM), pydantic-settings, Docker Compose.
   starting from our own `vpn_users` row: the instance is shared with
   AloBot and an account moved out of a Homeland group is exactly what
   that guard catches.
+- `app/services/adminlog.py` - the ONE format and sender for the
+  operational log group. Never call `bot.send_message` for logging or
+  compose an entry elsewhere; adding a category is one `EVENTS` entry
+  plus one call site. `log_event` never raises and returns immediately
+  when `ADMIN_LOG_CHAT_ID` is blank, so logging can never break a flow.
+  `app/services/health.py` posts only on a state CHANGE plus a daily
+  heartbeat - a check that says "all ok" every 15 minutes is how a log
+  group becomes unreadable. `app/services/backup.py` runs the nightly
+  pg_dump whose result that group reports.
 - `app/config.py` - single `Settings` source of truth, loaded from `.env`.
   No hardcoded secrets, ever.
 - FSM state lives in Redis (`app/redis.py`).

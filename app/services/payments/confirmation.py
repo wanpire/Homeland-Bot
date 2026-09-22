@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.payment import Payment
 from app.i18n.texts import t
+from app.services.adminlog import PURCHASE, RENEWAL, log_event
 from app.services.bot_users import get_language
 from app.services.catalog import get_plan
 from app.services.delivery import PURCHASE, RENEWAL, send_account_delivery
@@ -78,6 +79,18 @@ async def confirm_paid_payment(bot: Bot, session: AsyncSession, payment: Payment
     await session.commit()
 
     await _send_delivery_message(bot, session, payment, username)
+    # Logged here rather than in the webhook so a payment recovered by
+    # the reconciler is logged too - those are the ones an admin most
+    # wants to see.
+    await log_event(
+        bot,
+        RENEWAL if payment.purpose == "renew" else PURCHASE,
+        User=str(payment.telegram_id),
+        Plan=payment.group_name,
+        Amount=f"${payment.amount_usd}",
+        Provider=payment.provider,
+        Account=username,
+    )
     return ConfirmResult(ACTIVATED, username=username)
 
 
