@@ -144,16 +144,18 @@ TEXTS: dict[str, dict[str, str]] = {
             "<b>Duration:</b> {days} {day_word} from first connection\n"
             "<b>Volume:</b> {volume}\n\n"
             "<b>Username:</b> <code>{username}</code>\n"
-            "<b>Password:</b> <code>{password}</code>\n\n"
-            "Setup instructions and connection details for different platforms and "
-            "protocols are available in the Tutorial section of the main menu."
+            "<b>Password:</b> <code>{password}</code>"
         ),
         "delivery_body_no_password": (
             "<b>Plan:</b> {plan}\n"
             "<b>Duration:</b> {days} {day_word} from first connection\n"
             "<b>Volume:</b> {volume}\n\n"
             "<b>Username:</b> <code>{username}</code>\n"
-            "<b>Password:</b> unavailable — please contact support\n\n"
+            "<b>Password:</b> unavailable — please contact support"
+        ),
+        # Appended to purchase and renewal only: a trial ends on its own
+        # device-specific setup instead (see app/services/delivery.py).
+        "delivery_tutorial_note": (
             "Setup instructions and connection details for different platforms and "
             "protocols are available in the Tutorial section of the main menu."
         ),
@@ -321,16 +323,16 @@ TEXTS: dict[str, dict[str, str]] = {
             "<b>مدت زمان استفاده:</b> {days} {day_word} از زمان اولین اتصال\n"
             "<b>حجم:</b> {volume}\n\n"
             "<b>یوزرنیم:</b> <code>{username}</code>\n"
-            "<b>پسورد:</b> <code>{password}</code>\n\n"
-            "آموزش تنظیمات و اطلاعات اتصال برای پلتفرم‌ها و پروتکل‌های مختلف را "
-            "می‌توانید از بخش «آموزش» در منوی اصلی دریافت کنید."
+            "<b>پسورد:</b> <code>{password}</code>"
         ),
         "delivery_body_no_password": (
             "<b>پلن خریداری‌شده:</b> {plan}\n"
             "<b>مدت زمان استفاده:</b> {days} {day_word} از زمان اولین اتصال\n"
             "<b>حجم:</b> {volume}\n\n"
             "<b>یوزرنیم:</b> <code>{username}</code>\n"
-            "<b>پسورد:</b> در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید\n\n"
+            "<b>پسورد:</b> در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید"
+        ),
+        "delivery_tutorial_note": (
             "آموزش تنظیمات و اطلاعات اتصال برای پلتفرم‌ها و پروتکل‌های مختلف را "
             "می‌توانید از بخش «آموزش» در منوی اصلی دریافت کنید."
         ),

@@ -132,85 +132,228 @@ async def test_trial_confirm_username_collision_does_not_claim_trial_was_used(
     assert "try again" in text
 
 
-@pytest.mark.asyncio
-async def test_trial_openvpn_protocol_skips_platform_picker(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    from sqlalchemy import select as sa_select
-
-    from app.db.models.tutorial_protocol import TutorialProtocol
-
-    await dispatcher.feed_update(bot, make_callback_update(805, "trial:confirm"))
-    fake_session.reset()
-
-    async with async_session_maker() as session:
-        openvpn_id = (await session.execute(sa_select(TutorialProtocol).where(TutorialProtocol.label == "OpenVPN"))).scalar_one().id
-
-    await dispatcher.feed_update(bot, make_callback_update(805, f"trial:protocol:{openvpn_id}"))
-
-    sent = [c for c in fake_session.calls if c[0] in ("sendMessage", "editMessageText")]
-    assert any("ready" in c[1]["text"].lower() or "hl." in c[1]["text"] for c in sent)
-
-
-@pytest.mark.asyncio
-async def test_trial_l2tp_protocol_shows_platform_picker(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    from sqlalchemy import select as sa_select
-
-    from app.db.models.tutorial_protocol import TutorialProtocol
-
-    await dispatcher.feed_update(bot, make_callback_update(806, "trial:confirm"))
-    fake_session.reset()
-
-    async with async_session_maker() as session:
-        l2tp_id = (await session.execute(sa_select(TutorialProtocol).where(TutorialProtocol.label == "L2TP"))).scalar_one().id
-
-    await dispatcher.feed_update(bot, make_callback_update(806, f"trial:protocol:{l2tp_id}"))
-
-    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert len(edited) == 1
-    buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    assert any("ios" in b.lower() for b in buttons)
-    assert any("android" in b.lower() for b in buttons)
-
-
-@pytest.mark.asyncio
-async def test_trial_platform_pick_delivers_and_sends_credentials(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
+async def _ids(protocol: str, platform: str | None = None) -> tuple[int, int | None]:
     from sqlalchemy import select as sa_select
 
     from app.db.models.tutorial_platform import TutorialPlatform
     from app.db.models.tutorial_protocol import TutorialProtocol
 
-    await dispatcher.feed_update(bot, make_callback_update(807, "trial:confirm"))
+    async with async_session_maker() as session:
+        protocol_id = (await session.execute(sa_select(TutorialProtocol).where(TutorialProtocol.label == protocol))).scalar_one().id
+        platform_id = None
+        if platform is not None:
+            platform_id = (await session.execute(sa_select(TutorialPlatform).where(TutorialPlatform.label == platform))).scalar_one().id
+    return protocol_id, platform_id
+
+
+_OVPN_LINKS = {
+    "iOS": "https://apps.apple.com/openvpn",
+    "Android": "https://play.google.com/openvpn",
+    "Windows": "https://openvpn.net/windows",
+    "macOS": "https://openvpn.net/macos",
+}
+
+
+async def _seed_openvpn_material() -> None:
+    from app.services.app_config import set_config
+    from app.services.tutorial_delivery import download_link_key
+    from app.services.tutorials import upsert_profile
 
     async with async_session_maker() as session:
-        l2tp_id = (await session.execute(sa_select(TutorialProtocol).where(TutorialProtocol.label == "L2TP"))).scalar_one().id
-        ios_id = (await session.execute(sa_select(TutorialPlatform).where(TutorialPlatform.label == "iOS"))).scalar_one().id
+        await upsert_profile(session, platform_id=None, name="ir.alonet.ovpn", file_id="ovpn-file-id", file_type="document", text=None)
+        for label, url in _OVPN_LINKS.items():
+            await set_config(session, download_link_key(protocol_label="OpenVPN", platform_label=label), url)
 
-    await dispatcher.feed_update(bot, make_callback_update(807, f"trial:protocol:{l2tp_id}"))
+
+def _outgoing(fake_session: FakeBotSession) -> list[tuple[str, dict[str, Any]]]:
+    return [c for c in fake_session.calls if c[0] in ("sendMessage", "sendDocument", "sendPhoto", "sendVideo")]
+
+
+def _pair_attachments(fake_session: FakeBotSession) -> list[dict[str, Any]]:
+    """editMessageReplyMarkup calls that put the Tutorial/Back pair on a message."""
+    found = []
+    for name, payload in fake_session.calls:
+        if name != "editMessageReplyMarkup":
+            continue
+        rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
+        callbacks = {b.get("callback_data") for row in rows for b in row}
+        if callbacks == {"menu:tutorials", "menu:root"}:
+            found.append(payload)
+    return found
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("protocol", ["L2TP", "OpenVPN"])
+async def test_every_protocol_asks_for_the_device_before_sending_anything(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, protocol: str
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(805, "trial:confirm"))
+    protocol_id, _ = await _ids(protocol)
     fake_session.reset()
-    await dispatcher.feed_update(bot, make_callback_update(807, f"trial:platform:{ios_id}"))
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    # The trial now delivers through the shared account message: its own
-    # headline, then the same body every paid flow sends.
-    delivery = next(c for c in sent if "Your trial service is ready" in c[1]["text"])
-    text = delivery[1]["text"]
-    assert "ir." in text
-    assert "<b>Plan:</b> Trial" in text
-    assert "1 day from first connection" in text
-    buttons = {b["text"] for row in delivery[1]["reply_markup"]["inline_keyboard"] for b in row}
-    assert "📘 Tutorial" in buttons and "🔙 Back to Main Menu" in buttons
+    await dispatcher.feed_update(bot, make_callback_update(805, f"trial:protocol:{protocol_id}"))
+
+    assert _outgoing(fake_session) == [], "no credentials or files before the device is chosen"
+    edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
+    assert len(edited) == 1
+    buttons = {b["text"]: b["callback_data"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row}
+    _, ios_id = await _ids(protocol, "iOS")
+    assert buttons["iOS"] == f"trial:os:{protocol_id}:{ios_id}"
+    assert {"iOS", "Android", "Windows", "macOS"} <= set(buttons)
+    assert "trial:back_to_protocol" in buttons.values()
+
+
+@pytest.mark.asyncio
+async def test_openvpn_device_pick_sends_credentials_then_that_devices_setup_only(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await _seed_openvpn_material()
+    await dispatcher.feed_update(bot, make_callback_update(806, "trial:confirm"))
+    protocol_id, windows_id = await _ids("OpenVPN", "Windows")
+    await dispatcher.feed_update(bot, make_callback_update(806, f"trial:protocol:{protocol_id}"))
+    fake_session.reset()
+
+    await dispatcher.feed_update(bot, make_callback_update(806, f"trial:os:{protocol_id}:{windows_id}"))
+
+    out = _outgoing(fake_session)
+    assert [c[0] for c in out] == ["sendMessage", "sendDocument", "sendMessage"], "credentials, config, link"
+
+    credentials = out[0][1]
+    assert "Your trial service is ready" in credentials["text"]
+    assert "hl." in credentials["text"] or "ir." in credentials["text"]
+    assert "Tutorial section" not in credentials["text"]
+    assert "reply_markup" not in credentials, "no early Tutorial button"
+
+    link_text = out[2][1]["text"]
+    assert _OVPN_LINKS["Windows"] in link_text
+    for other, url in _OVPN_LINKS.items():
+        if other != "Windows":
+            assert url not in link_text
+    assert not any("ovpn:link:" in str(c[1]) for c in fake_session.calls), "device is never asked again"
+
+    pairs = _pair_attachments(fake_session)
+    assert len(pairs) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_final_pair_lands_on_the_last_message_of_the_sequence(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await _seed_openvpn_material()
+    await dispatcher.feed_update(bot, make_callback_update(812, "trial:confirm"))
+    protocol_id, ios_id = await _ids("OpenVPN", "iOS")
+    await dispatcher.feed_update(bot, make_callback_update(812, f"trial:protocol:{protocol_id}"))
+    fake_session.reset()
+
+    await dispatcher.feed_update(bot, make_callback_update(812, f"trial:os:{protocol_id}:{ios_id}"))
+
+    calls = [c for c in fake_session.calls if c[0] != "answerCallbackQuery"]
+    last_send = max(i for i, c in enumerate(calls) if c[0] in ("sendMessage", "sendDocument"))
+    assert _OVPN_LINKS["iOS"] in calls[last_send][1]["text"], "the link is the last thing sent"
+    assert calls[-1][0] == "editMessageReplyMarkup", "the pair is attached after it"
+    assert _pair_attachments(fake_session) == [calls[-1][1]]
+
+
+@pytest.mark.asyncio
+async def test_with_no_setup_material_the_pair_goes_on_the_credentials(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """L2TP on macOS uses the built-in client: nothing may be configured
+    beyond the credentials, and the pair must still appear."""
+    await dispatcher.feed_update(bot, make_callback_update(813, "trial:confirm"))
+    protocol_id, macos_id = await _ids("L2TP", "macOS")
+    await dispatcher.feed_update(bot, make_callback_update(813, f"trial:protocol:{protocol_id}"))
+    fake_session.reset()
+
+    await dispatcher.feed_update(bot, make_callback_update(813, f"trial:os:{protocol_id}:{macos_id}"))
+
+    out = _outgoing(fake_session)
+    assert len(out) == 1 and "Your trial service is ready" in out[0][1]["text"]
+    assert len(_pair_attachments(fake_session)) == 1
+
+
+@pytest.mark.asyncio
+async def test_l2tp_device_pick_sends_that_devices_guide_after_the_credentials(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.tutorials import upsert_guide
+
+    protocol_id, ios_id = await _ids("L2TP", "iOS")
+    async with async_session_maker() as session:
+        guide = await upsert_guide(session, platform_id=ios_id, protocol_id=protocol_id, media_file_id=None, media_type=None)
+        guide.body_html = "iOS L2TP steps"
+        await session.commit()
+
+    await dispatcher.feed_update(bot, make_callback_update(807, "trial:confirm"))
+    await dispatcher.feed_update(bot, make_callback_update(807, f"trial:protocol:{protocol_id}"))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(807, f"trial:os:{protocol_id}:{ios_id}"))
+
+    texts = [c[1]["text"] for c in _outgoing(fake_session)]
+    assert len(texts) == 2
+    assert "Your trial service is ready" in texts[0]
+    assert "<b>Plan:</b> Trial" in texts[0]
+    assert "1 day from first connection" in texts[0]
+    assert texts[1] == "iOS L2TP steps"
+    assert len(_pair_attachments(fake_session)) == 1
+
+
+@pytest.mark.asyncio
+async def test_android_l2tp_is_refused_before_any_credentials(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(814, "trial:confirm"))
+    protocol_id, android_id = await _ids("L2TP", "Android")
+    await dispatcher.feed_update(bot, make_callback_update(814, f"trial:protocol:{protocol_id}"))
+    fake_session.reset()
+
+    await dispatcher.feed_update(bot, make_callback_update(814, f"trial:os:{protocol_id}:{android_id}"))
+
+    texts = [c[1]["text"] for c in _outgoing(fake_session)]
+    assert len(texts) == 1 and "OpenVPN" in texts[0]
+    assert not any(c[0] == "editMessageReplyMarkup" for c in fake_session.calls), "picker stays so Back still works"
+
+
+@pytest.mark.asyncio
+async def test_the_device_picker_is_disarmed_once_a_device_is_accepted(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    await dispatcher.feed_update(bot, make_callback_update(817, "trial:confirm"))
+    protocol_id, windows_id = await _ids("L2TP", "Windows")
+    await dispatcher.feed_update(bot, make_callback_update(817, f"trial:protocol:{protocol_id}"))
+    fake_session.reset()
+
+    await dispatcher.feed_update(bot, make_callback_update(817, f"trial:os:{protocol_id}:{windows_id}"))
+
+    first = fake_session.calls[0]
+    assert first[0] == "editMessageReplyMarkup"
+    assert not (first[1].get("reply_markup") or {}).get("inline_keyboard")
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_platform_button_still_delivers_over_l2tp(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    """`trial:platform:<id>` buttons from the previous flow sit in chat
+    history and must keep working."""
+    await dispatcher.feed_update(bot, make_callback_update(818, "trial:confirm"))
+    _, ios_id = await _ids("L2TP", "iOS")
+    fake_session.reset()
+
+    await dispatcher.feed_update(bot, make_callback_update(818, f"trial:platform:{ios_id}"))
+
+    texts = [c[1]["text"] for c in _outgoing(fake_session)]
+    assert any("Your trial service is ready" in text for text in texts)
+    assert len(_pair_attachments(fake_session)) == 1
 
 
 async def _deliver_openvpn_trial(dispatcher: Any, bot: Any, telegram_id: int) -> None:
-    """Runs confirm -> OpenVPN, the shortest path that reaches
+    """Runs confirm -> OpenVPN -> iOS, the shortest path that reaches
     _send_trial_credentials."""
-    from sqlalchemy import select as sa_select
-
-    from app.db.models.tutorial_protocol import TutorialProtocol
-
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, "trial:confirm"))
-    async with async_session_maker() as session:
-        openvpn_id = (await session.execute(sa_select(TutorialProtocol).where(TutorialProtocol.label == "OpenVPN"))).scalar_one().id
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"trial:protocol:{openvpn_id}"))
+    protocol_id, ios_id = await _ids("OpenVPN", "iOS")
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"trial:protocol:{protocol_id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"trial:os:{protocol_id}:{ios_id}"))
 
 
 @pytest.mark.asyncio
@@ -351,12 +494,40 @@ async def test_trial_ready_credentials_render_in_persian(dispatcher: Any, bot: A
         await set_language(session, 822, "fa")
 
     await dispatcher.feed_update(bot, make_callback_update(822, "trial:confirm"))
-    async with async_session_maker() as session:
-        openvpn_id = (await session.execute(sa_select(TutorialProtocol).where(TutorialProtocol.label == "OpenVPN"))).scalar_one().id
-    fake_session.reset()
+    openvpn_id, ios_id = await _ids("OpenVPN", "iOS")
     await dispatcher.feed_update(bot, make_callback_update(822, f"trial:protocol:{openvpn_id}"))
+    fake_session.reset()
+    await dispatcher.feed_update(bot, make_callback_update(822, f"trial:os:{openvpn_id}:{ios_id}"))
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     delivery = next(c for c in sent if "سرویس تست شما آماده است" in c[1]["text"])
     assert "یوزرنیم:" in delivery[1]["text"]
     assert "روز از زمان اولین اتصال" in delivery[1]["text"]
+    assert "بخش «آموزش»" not in delivery[1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_a_second_tap_on_a_disarmed_picker_sends_nothing(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two taps racing each other both reach the handler; Telegram lets
+    only one strip the keyboard and answers the other "message is not
+    modified". That one must not resend the sequence."""
+    from aiogram.exceptions import TelegramBadRequest
+
+    await dispatcher.feed_update(bot, make_callback_update(819, "trial:confirm"))
+    protocol_id, windows_id = await _ids("L2TP", "Windows")
+    await dispatcher.feed_update(bot, make_callback_update(819, f"trial:protocol:{protocol_id}"))
+    fake_session.reset()
+
+    original = fake_session.make_request
+
+    async def _already_disarmed(bot_: Any, method: Any, timeout: int | None = None) -> Any:
+        if method.__api_method__ == "editMessageReplyMarkup" and method.reply_markup is None:
+            raise TelegramBadRequest(method=method, message="Bad Request: message is not modified")
+        return await original(bot_, method, timeout)
+
+    monkeypatch.setattr(fake_session, "make_request", _already_disarmed)
+    await dispatcher.feed_update(bot, make_callback_update(819, f"trial:os:{protocol_id}:{windows_id}"))
+
+    assert _outgoing(fake_session) == []

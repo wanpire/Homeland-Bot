@@ -33,10 +33,9 @@ def _last_message(fake_session: FakeBotSession) -> dict[str, Any]:
     [
         ("purchase", "Your order has been placed successfully"),
         ("renewal", "Your renewal was successful"),
-        ("trial", "Your trial service is ready"),
     ],
 )
-async def test_every_flow_sends_the_same_body_under_its_own_headline(
+async def test_every_paid_flow_sends_the_same_body_under_its_own_headline(
     bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, kind: str, headline: str
 ) -> None:
     from app.services.delivery import send_account_delivery
@@ -62,6 +61,29 @@ async def test_every_flow_sends_the_same_body_under_its_own_headline(
     buttons = {b["text"]: b["callback_data"] for row in payload["reply_markup"]["inline_keyboard"] for b in row}
     assert buttons["📘 Tutorial"] == "menu:tutorials"
     assert buttons["🔙 Back to Main Menu"] == "menu:root"
+
+
+@pytest.mark.asyncio
+async def test_the_trial_message_has_no_tutorial_note_and_no_buttons(
+    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
+) -> None:
+    """The trial's credentials are one step of a longer sequence; its
+    Tutorial/Back pair goes on that sequence's last message instead, and
+    the paragraph pointing at the Tutorial section is dropped for it."""
+    from app.services.delivery import TRIAL, send_account_delivery
+
+    trial = await _plan(seeded_catalog, category="trial", name="Trial")
+    message_id = await send_account_delivery(
+        bot, 3009, kind=TRIAL, plan=trial, data_cap_mb=trial.data_cap_mb,
+        username="ir.t00009", password="pw9", lang="en",
+    )
+
+    payload = _last_message(fake_session)
+    assert "Your trial service is ready" in payload["text"]
+    assert "<code>ir.t00009</code>" in payload["text"] and "<code>pw9</code>" in payload["text"]
+    assert "Tutorial section" not in payload["text"]
+    assert "reply_markup" not in payload
+    assert isinstance(message_id, int)
 
 
 @pytest.mark.asyncio
@@ -122,6 +144,16 @@ async def test_persian_rendering(bot: Any, fake_session: FakeBotSession, seeded_
     assert "روز از زمان اولین اتصال" in text
     assert "یوزرنیم:" in text and "پسورد:" in text
     assert "<b>پلن خریداری‌شده:</b> تست رایگان" in text
+    assert "بخش «آموزش»" not in text
+    assert "reply_markup" not in payload
+
+    monthly = await _plan(seeded_catalog, category="scroll", name="1 Month")
+    await send_account_delivery(
+        bot, 3004, kind="purchase", plan=monthly, data_cap_mb=10240,
+        username="ir.p00003", password="pw", lang="fa",
+    )
+    payload = _last_message(fake_session)
+    assert "بخش «آموزش» در منوی اصلی" in payload["text"]
     buttons = {b["text"] for row in payload["reply_markup"]["inline_keyboard"] for b in row}
     assert "📘 آموزش" in buttons and "🔙 بازگشت به منوی اصلی" in buttons
 

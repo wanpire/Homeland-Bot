@@ -63,8 +63,9 @@ Redis (FSM), pydantic-settings, Docker Compose.
   the download link and OpenVPN profile are separate buttons, rendered
   only when that content exists. All sending goes through
   `app/services/tutorial_delivery.py`'s `send_guide` / `send_profile` /
-  `send_download_links`, which `deliver_setup` also composes for Trial
-  and My Services - never add a second path that sends this material.
+  `send_download_links`, which `deliver_setup` also composes for My
+  Services and `deliver_device_setup` for the Trial - never add a second
+  path that sends this material.
 - `app/services/payments/plisio.py` - the ONLY place that talks to
   Plisio. GET-only API (`api_key` as a query param, `{"status","data"}`
   envelopes, so a failure can arrive with HTTP 200), and ONE secret key
@@ -79,8 +80,16 @@ Redis (FSM), pydantic-settings, Docker Compose.
 - `app/services/payments/confirmation.py` - the ONE path from "invoice
   paid" to "service provisioned", used by both the Plisio callback and
   the reconciler.
+- Trial delivery (`app/bot/handlers/trial.py`) is strictly device-first:
+  confirm → protocol → device (`trial:os:<protocol>:<platform>`, asked
+  for EVERY protocol) → credentials with no buttons and no Tutorial note
+  → `deliver_device_setup` for that device only → the Tutorial/main-menu
+  pair attached to whichever message came last. Android+L2TP is refused
+  before credentials go out. `trial:platform:<id>` stays as an L2TP alias
+  for old buttons in chat history.
 - `app/services/openvpn_setup.py` - the ONE post-handover setup step,
-  called by purchase, renewal, trial and My Services' resend. Sends the
+  called by purchase, renewal and My Services' resend (the trial already
+  knows the device, so it sends that device's link directly instead). Sends the
   .ovpn config, then four platform buttons (`ovpn:link:<id>`), and only
   the tapped platform's download link - it replaced a message listing
   all four at once. It looks up NO guide: none exists for OpenVPN, and
@@ -89,9 +98,11 @@ Redis (FSM), pydantic-settings, Docker Compose.
   Tutorials keeps the default, where "not ready" answers an explicit
   request.
 - `app/services/delivery.py` - the ONE account-delivery message, sent by
-  all three handover flows (purchase, renewal, trial). Only the headline
-  differs; the body, tap-to-copy credentials and the Tutorial/main-menu
-  buttons are shared, so never build this text anywhere else. Callers
+  all three handover flows (purchase, renewal, trial). The headline
+  differs, and purchase/renewal end with the Tutorial-section note
+  (`delivery_tutorial_note`) and the Tutorial/main-menu buttons while the
+  trial's carries neither; the body and tap-to-copy credentials are
+  shared, so never build this text anywhere else. Callers
   pass `data_cap_mb` themselves: a paid order passes the snapshot on its
   payment, a trial passes the trial plan's value. A purchase carries its
   password; a renewal and a trial read it back from IBSng, and an

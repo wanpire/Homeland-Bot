@@ -32,10 +32,12 @@ def trial_protocol_keyboard(protocols: list[TutorialProtocol], lang: str) -> Inl
     return builder.as_markup()
 
 
-def trial_platform_keyboard(platforms: list[TutorialPlatform], lang: str) -> InlineKeyboardMarkup:
+def trial_os_keyboard(protocol_id: int, platforms: list[TutorialPlatform], lang: str) -> InlineKeyboardMarkup:
+    """The device step, asked for every protocol before anything is sent.
+    The protocol travels in the callback so the next step needs no FSM."""
     builder = InlineKeyboardBuilder()
     for platform in platforms:
-        builder.button(text=platform.label, callback_data=f"trial:platform:{platform.id}")
+        builder.button(text=platform.label, callback_data=f"trial:os:{protocol_id}:{platform.id}")
     builder.button(text=t("back_button", lang), callback_data="trial:back_to_protocol")
     builder.adjust(2, 2, 1)
     return builder.as_markup()

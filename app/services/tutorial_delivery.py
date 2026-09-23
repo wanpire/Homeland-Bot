@@ -37,13 +37,15 @@ def download_link_key(*, protocol_label: str, platform_label: str | None) -> str
 
 async def _send_media_or_text(
     bot: Bot, telegram_id: int, *, file_id: str | None, file_type: str | None, text: str | None, fallback_prefix: str
-) -> None:
+) -> int | None:
     if file_id is not None and file_type is not None:
         sender = getattr(bot, _MEDIA_SENDERS.get(file_type, "send_document"))
-        await sender(telegram_id, file_id, caption=text or None)
-        return
+        message = await sender(telegram_id, file_id, caption=text or None)
+        return message.message_id
     if text is not None:
-        await bot.send_message(telegram_id, f"{fallback_prefix}\n\n{text}")
+        message = await bot.send_message(telegram_id, f"{fallback_prefix}\n\n{text}")
+        return message.message_id
+    return None
 
 
 async def resolve_download_link(
@@ -61,17 +63,18 @@ async def resolve_download_link(
     return specific or generic
 
 
-async def send_profile(bot: Bot, telegram_id: int, session: AsyncSession, *, platform_id: int | None, lang: str) -> bool:
-    """The OpenVPN connection profile. Returns False when none is
-    configured, so a caller can avoid promising one."""
+async def send_profile(
+    bot: Bot, telegram_id: int, session: AsyncSession, *, platform_id: int | None, lang: str
+) -> int | None:
+    """The OpenVPN connection profile. Returns the sent message id, or
+    None when none is configured, so a caller can avoid promising one."""
     profile = await find_matching_profile(session, platform_id=platform_id)
     if profile is None:
-        return False
-    await _send_media_or_text(
+        return None
+    return await _send_media_or_text(
         bot, telegram_id, file_id=profile.file_id, file_type=profile.file_type,
         text=profile.text, fallback_prefix=t("connection_profile_prefix", lang, name=profile.name),
     )
-    return True
 
 
 async def send_guide(
@@ -110,16 +113,17 @@ async def send_guide(
 async def send_download_links(
     bot: Bot, telegram_id: int, session: AsyncSession, *, protocol: TutorialProtocol,
     platform: TutorialPlatform | None, lang: str,
-) -> bool:
+) -> int | None:
     """One link for a chosen platform, or every platform's link at once
     when no platform was chosen (OpenVPN's shared-guide path, where the
-    user picks their own). Returns False when nothing is configured."""
+    user picks their own). Returns the sent message id, or None when
+    nothing is configured."""
     if platform is not None:
         link = await resolve_download_link(session, protocol=protocol, platform=platform)
         if not link:
-            return False
-        await bot.send_message(telegram_id, f"{t('download_link_prefix', lang)}\n{link}")
-        return True
+            return None
+        message = await bot.send_message(telegram_id, f"{t('download_link_prefix', lang)}\n{link}")
+        return message.message_id
 
     links = []
     for candidate in await list_platforms(session):
@@ -132,9 +136,9 @@ async def send_download_links(
     if generic:
         links.append(f"{t('any_platform_label', lang)} {generic}")
     if not links:
-        return False
-    await bot.send_message(telegram_id, t("download_openvpn_links_heading", lang) + "\n" + "\n".join(links))
-    return True
+        return None
+    message = await bot.send_message(telegram_id, t("download_openvpn_links_heading", lang) + "\n" + "\n".join(links))
+    return message.message_id
 
 
 async def deliver_setup(
@@ -166,3 +170,34 @@ async def deliver_setup(
     )
     await send_download_links(bot, telegram_id, session, protocol=protocol, platform=platform, lang=lang)
     return True, guide_message_id
+
+
+async def deliver_device_setup(
+    bot: Bot, telegram_id: int, session: AsyncSession, *, protocol: TutorialProtocol,
+    platform: TutorialPlatform, lang: str,
+) -> int | None:
+    """The setup material for a device the customer has ALREADY chosen,
+    for a flow that asked for it up front (the trial). OpenVPN gets its
+    profile then that device's app link - the same two senders the
+    post-handover setup step and its `ovpn:link:` picker use, and, like
+    that step, no guide lookup (none exists for OpenVPN; see
+    app/services/openvpn_setup.py). L2TP gets that device's guide then its
+    link, exactly what `deliver_setup` sends for L2TP.
+
+    The caller must have checked `is_protocol_valid_for_platform` first:
+    unlike `deliver_setup`, this runs after credentials are out. Returns
+    the id of the last message sent, or None if nothing was configured,
+    so the caller can put its closing buttons on the true end of the
+    sequence."""
+    last_message_id: int | None = None
+    if protocol.label.strip().lower() == "openvpn":
+        last_message_id = await send_profile(bot, telegram_id, session, platform_id=platform.id, lang=lang)
+    else:
+        last_message_id = await send_guide(
+            bot, telegram_id, session, protocol_id=protocol.id, platform_id=platform.id, lang=lang,
+            notify_if_missing=False,
+        )
+    link_message_id = await send_download_links(
+        bot, telegram_id, session, protocol=protocol, platform=platform, lang=lang
+    )
+    return link_message_id or last_message_id
