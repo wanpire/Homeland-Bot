@@ -101,9 +101,9 @@ def test_category_labels_are_correct_in_both_languages() -> None:
     and are deliberately not touched here."""
     from app.i18n.texts import t
 
-    assert t("category_scroll", "fa") == "📜 وب‌گردی"
-    assert t("category_stream", "fa") == "🌊 تماشا"
-    assert t("category_trip", "fa") == "🧳 سفر"
+    assert t("category_scroll", "fa") == "📜 اسکرول"
+    assert t("category_stream", "fa") == "🌊 استریم"
+    assert t("category_trip", "fa") == "🧳 تریپ"
 
     assert t("category_scroll", "en") == "📜 Scroll"
     assert t("category_stream", "en") == "🌊 Stream"

@@ -393,7 +393,7 @@ async def test_buy_category_screen_in_persian(dispatcher: Any, bot: Any, fake_se
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert "خرید اشتراک" in edited[0][1]["text"]
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    assert "📜 وب‌گردی" in buttons
+    assert "📜 اسکرول" in buttons
 
 
 @pytest.mark.asyncio
