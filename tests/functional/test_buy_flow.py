@@ -455,3 +455,36 @@ async def test_buy_confirm_goes_straight_to_the_payment_link(
     buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert any(b.get("url") == "https://plisio.net/invoice/abc" for b in buttons)
     assert not any((b.get("callback_data") or "").startswith("buy:pay:") for b in buttons)
+
+
+_CATEGORY_DESCRIPTIONS = {
+    ("trip", "en"): "📌 Ideal for short trips abroad, with full access to Iran's local network.",
+    ("trip", "fa"): "📌 مناسب برای سفر کوتاه به خارج از کشور و دسترسی کامل به شبکه داخل ایران",
+    ("scroll", "en"): "Suited for domestic banks, apps, websites and government services.",
+    ("scroll", "fa"): "مناسب برای استفاده از بانک‌ها، اپلیکیشن‌ها و سایت‌های داخلی و دولتی",
+    ("stream", "en"): "Suited for all online streaming platforms.",
+    ("stream", "fa"): "مناسب برای تمامی پلتفرم‌های پخش آنلاین می‌باشد",
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("category", "lang"), list(_CATEGORY_DESCRIPTIONS))
+async def test_category_plan_list_opens_with_its_description(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, category: str, lang: str
+) -> None:
+    """The wording is the owner's, in both languages, so it is pinned
+    verbatim rather than paraphrased back from the texts module."""
+    from app.db.session import async_session_maker
+    from app.i18n.texts import t
+    from app.services.bot_users import record_seen, set_language
+
+    telegram_id = 840 if lang == "en" else 841
+    async with async_session_maker() as session:
+        await record_seen(session, telegram_id, None)
+        await set_language(session, telegram_id, lang)
+
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"buy:category:{category}"))
+
+    text = [c for c in fake_session.calls if c[0] == "editMessageText"][-1][1]["text"]
+    assert text.startswith(_CATEGORY_DESCRIPTIONS[(category, lang)])
+    assert text.endswith(t("buy_pick_plan", lang))

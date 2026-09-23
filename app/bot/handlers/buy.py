@@ -65,7 +65,10 @@ async def buy_category_cb(callback: CallbackQuery, lang: str) -> None:
     async with async_session_maker() as session:
         plans = await list_plans(session, category=category, active_only=True)
     if callback.message is not None:
-        await callback.message.edit_text(t("buy_pick_plan", lang), reply_markup=buy_plan_keyboard(plans, lang))
+        # The description heads the plan list: this is the first screen
+        # that is about one category rather than all three.
+        text = f"{t(f'category_desc_{category}', lang)}\n\n{t('buy_pick_plan', lang)}"
+        await callback.message.edit_text(text, reply_markup=buy_plan_keyboard(plans, lang))
     await callback.answer()
 
 

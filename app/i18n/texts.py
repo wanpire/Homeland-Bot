@@ -26,6 +26,11 @@ TEXTS: dict[str, dict[str, str]] = {
         # --- buy.py / buy keyboard ---
         "buy_category_heading": "🔑 <b>Buy Subscription</b>\n\nPick a category:",
         "buy_pick_plan": "Pick a plan:",
+        # Shown above a category's plan list. Owner-supplied wording in both
+        # languages - edit the copy with them, not around them.
+        "category_desc_trip": "📌 Ideal for short trips abroad, with full access to Iran's local network.",
+        "category_desc_scroll": "Suited for domestic banks, apps, websites and government services.",
+        "category_desc_stream": "Suited for all online streaming platforms.",
         "category_scroll": "📜 Scroll",
         "category_stream": "🌊 Stream",
         "category_trial": "Trial",
@@ -206,6 +211,9 @@ TEXTS: dict[str, dict[str, str]] = {
 
         "buy_category_heading": "🔑 <b>خرید اشتراک</b>\n\nیک دسته را انتخاب کنید:",
         "buy_pick_plan": "یک پلن را انتخاب کنید:",
+        "category_desc_trip": "📌 مناسب برای سفر کوتاه به خارج از کشور و دسترسی کامل به شبکه داخل ایران",
+        "category_desc_scroll": "مناسب برای استفاده از بانک‌ها، اپلیکیشن‌ها و سایت‌های داخلی و دولتی",
+        "category_desc_stream": "مناسب برای تمامی پلتفرم‌های پخش آنلاین می‌باشد",
         "category_scroll": "📜 اسکرول",
         "category_stream": "🌊 استریم",
         "category_trial": "تست رایگان",
