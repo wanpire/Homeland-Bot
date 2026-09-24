@@ -22,6 +22,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from app.config import get_settings
 from app.db.session import async_session_maker
 from tests.fakes.fake_bot_session import FakeBotSession
+from tests.handover_helpers import pair_attachments, tap_through_handover
 
 #: The exact field set Plisio sent for the stuck invoice, taken from the
 #: production audit trail and Plisio's own record of it.
@@ -84,8 +85,8 @@ async def _pending_payment(seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
 
 
 def _delivery_message(fake_session: FakeBotSession, chat_id: int) -> dict[str, Any]:
-    """The credentials message specifically. The OpenVPN setup prompt now
-    follows it, so "the last message" is no longer the right one."""
+    """The credentials message specifically - setup material follows it,
+    so "the last message" is not the right one."""
     for kind, payload in reversed(fake_session.calls):
         if kind != "sendMessage" or payload.get("chat_id") != chat_id:
             continue
@@ -340,10 +341,11 @@ async def test_reconciler_skips_payments_from_a_previous_provider(
     assert counts["checked"] == 0 and counts["errors"] == 0
 
 
-async def _deliver(bot: Any, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch, telegram_id: int,
+async def _deliver(dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict,
+                   monkeypatch: pytest.MonkeyPatch, telegram_id: int,
                    *, lang: str | None = None, plan_id: int | None = None):  # type: ignore[no-untyped-def]
-    """Drive one purchase through the real callback and hand back the
-    delivery message that reached the buyer."""
+    """Drive one purchase through the real callback and the handover taps
+    that follow it, and hand back the payment."""
     from app.services.bot_users import record_seen, set_language
 
     if lang is not None:
@@ -358,14 +360,15 @@ async def _deliver(bot: Any, seeded_catalog: dict, monkeypatch: pytest.MonkeyPat
         await client.post("/webhooks/crypto?json=true", data=body, headers={"Content-Type": "application/json"})
     finally:
         await client.close()
+    await tap_through_handover(dispatcher, bot, fake_session, telegram_id)
     return payment
 
 
 @pytest.mark.asyncio
 async def test_delivery_message_carries_the_order_details_in_english(
-    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    payment = await _deliver(bot, seeded_catalog, monkeypatch, 1801)
+    payment = await _deliver(dispatcher, bot, fake_session, seeded_catalog, monkeypatch, 1801)
 
     text = _delivery_message(fake_session, 1801)["text"]
     assert "Your order has been placed successfully" in text
@@ -377,28 +380,31 @@ async def test_delivery_message_carries_the_order_details_in_english(
     assert f"<code>{payment.ibsng_username}</code>" in text
     assert f"<code>{payment.ibsng_password}</code>" in text
 
-    buttons = {b["text"]: b["callback_data"] for row in _delivery_message(fake_session, 1801)["reply_markup"]["inline_keyboard"] for b in row}
+    assert "reply_markup" not in _delivery_message(fake_session, 1801), "no buttons under the credentials"
+    pairs = pair_attachments(fake_session)
+    assert len(pairs) == 1
+    buttons = {b["text"]: b["callback_data"] for row in pairs[0]["reply_markup"]["inline_keyboard"] for b in row}
     assert buttons["📘 Tutorial"] == "menu:tutorials"
     assert buttons["🔙 Back to Main Menu"] == "menu:root"
 
 
 @pytest.mark.asyncio
 async def test_delivery_message_is_persian_for_a_persian_buyer(
-    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    payment = await _deliver(bot, seeded_catalog, monkeypatch, 1802, lang="fa")
+    payment = await _deliver(dispatcher, bot, fake_session, seeded_catalog, monkeypatch, 1802, lang="fa")
 
     text = _delivery_message(fake_session, 1802)["text"]
     assert "سفارش شما با موفقیت ثبت شد" in text
     assert "روز از زمان اولین اتصال" in text
     assert f"<code>{payment.ibsng_username}</code>" in text
-    buttons = {b["text"] for row in _delivery_message(fake_session, 1802)["reply_markup"]["inline_keyboard"] for b in row}
+    buttons = {b["text"] for row in pair_attachments(fake_session)[0]["reply_markup"]["inline_keyboard"] for b in row}
     assert "📘 آموزش" in buttons and "🔙 بازگشت به منوی اصلی" in buttons
 
 
 @pytest.mark.asyncio
 async def test_unlimited_plan_renders_volume_as_unlimited(
-    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A plan with data_cap_mb=0 must read "Unlimited", never "0 MB"."""
     unlimited = next(
@@ -407,24 +413,24 @@ async def test_unlimited_plan_renders_volume_as_unlimited(
     if unlimited is None:
         pytest.skip("no unlimited plan in the seeded catalog")
 
-    await _deliver(bot, seeded_catalog, monkeypatch, 1803, plan_id=unlimited["id"])
+    await _deliver(dispatcher, bot, fake_session, seeded_catalog, monkeypatch, 1803, plan_id=unlimited["id"])
 
     assert "Unlimited" in _delivery_message(fake_session, 1803)["text"]
 
 
 @pytest.mark.asyncio
 async def test_missing_password_still_delivers_the_order(
-    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The service IS provisioned - an unreadable password must degrade
     to the contact-support variant, never look like a failed order."""
-    from app.services.payments import confirmation
+    from app.services import handover
 
-    async def _no_password(payment: Any, username: str) -> None:
+    async def _no_password(account: Any, telegram_id: int) -> None:
         return None
 
-    monkeypatch.setattr(confirmation, "_recover_password", _no_password)
-    payment = await _deliver(bot, seeded_catalog, monkeypatch, 1804)
+    monkeypatch.setattr(handover, "_read_password", _no_password)
+    payment = await _deliver(dispatcher, bot, fake_session, seeded_catalog, monkeypatch, 1804)
 
     text = _delivery_message(fake_session, 1804)["text"]
     assert "contact support" in text.lower()
@@ -434,12 +440,12 @@ async def test_missing_password_still_delivers_the_order(
 
 @pytest.mark.asyncio
 async def test_renewal_reads_the_password_back_from_ibsng(
-    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A renewal payment carries no password - the account keeps its own -
     so it is read back the way the trial flow does."""
     from app.db.models.payment import Payment
-    from app.services.payments import confirmation
+    from app.services import handover
 
     payment = await _pending_payment(seeded_catalog, monkeypatch, telegram_id=1805)
     async with async_session_maker() as session:
@@ -447,10 +453,11 @@ async def test_renewal_reads_the_password_back_from_ibsng(
         row.ibsng_password = None
         await session.commit()
 
-    async def _from_ibsng(payment_row: Any, username: str) -> str:
+    async def _from_ibsng(account: Any, telegram_id: int) -> str:
+        assert account.stored_password is None, "a renewal has no stored password to use"
         return "readback99"
 
-    monkeypatch.setattr(confirmation, "_recover_password", _from_ibsng)
+    monkeypatch.setattr(handover, "_read_password", _from_ibsng)
 
     client = await _make_client(bot)
     try:
@@ -459,4 +466,5 @@ async def test_renewal_reads_the_password_back_from_ibsng(
     finally:
         await client.close()
 
+    await tap_through_handover(dispatcher, bot, fake_session, 1805)
     assert "<code>readback99</code>" in _delivery_message(fake_session, 1805)["text"]

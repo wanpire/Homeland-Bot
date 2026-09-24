@@ -126,15 +126,15 @@ async def test_a_failed_topic_creation_falls_back_to_the_general_thread(
 
 
 @pytest.mark.asyncio
-async def test_ensure_all_topics_creates_eight_and_is_idempotent(
+async def test_ensure_all_topics_creates_nine_and_is_idempotent(
     bot: Any, fake_session: FakeBotSession, seeded_catalog: dict
 ) -> None:
     from app.services.logtopics import ensure_all_topics
 
     first = await ensure_all_topics(bot, _CHAT_ID)
-    assert len(first) == 8
+    assert len(first) == 9
     assert all(outcome.startswith("created") for outcome in first.values())
-    assert len(_created_topics(fake_session)) == 8
+    assert len(_created_topics(fake_session)) == 9
 
     fake_session.reset()
     second = await ensure_all_topics(bot, _CHAT_ID)
@@ -150,7 +150,7 @@ async def test_logtopics_command_reports_each_topic(
 
     reply = [m for m in _sent(fake_session) if m["chat_id"] == FAKE_ADMIN_ID][-1]["text"]
     for name in ("🆕 New Users", "💰 Purchases", "♻️ Renewals", "🎁 Trials",
-                 "💾 Backups", "🖥 Server Health", "🩺 Service Health", "📊 Accounting"):
+                 "💾 Backups", "🖥 Server Health", "🩺 Service Health", "📊 Accounting", "🔑 Accounts"):
         assert name in reply
 
 

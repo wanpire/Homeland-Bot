@@ -56,11 +56,10 @@ async def test_every_paid_flow_sends_the_same_body_under_its_own_headline(
     # would force the customer to hand-edit the credentials apart.
     assert "<code>ir.abc123</code>" in text
     assert "<code>pw1234</code>" in text
-    assert "Tutorial section of the main menu" in text
-
-    buttons = {b["text"]: b["callback_data"] for row in payload["reply_markup"]["inline_keyboard"] for b in row}
-    assert buttons["📘 Tutorial"] == "menu:tutorials"
-    assert buttons["🔙 Back to Main Menu"] == "menu:root"
+    # Step 3 of the shared handover: the Tutorial/Back pair ends the
+    # sequence, so the credentials carry neither the pair nor a pointer.
+    assert "Tutorial section" not in text
+    assert "reply_markup" not in payload
 
 
 @pytest.mark.asyncio
@@ -153,9 +152,9 @@ async def test_persian_rendering(bot: Any, fake_session: FakeBotSession, seeded_
         username="ir.p00003", password="pw", lang="fa",
     )
     payload = _last_message(fake_session)
-    assert "بخش «آموزش» در منوی اصلی" in payload["text"]
-    buttons = {b["text"] for row in payload["reply_markup"]["inline_keyboard"] for b in row}
-    assert "📘 آموزش" in buttons and "🔙 بازگشت به منوی اصلی" in buttons
+    assert "سفارش شما با موفقیت ثبت شد" in payload["text"]
+    assert "بخش «آموزش»" not in payload["text"]
+    assert "reply_markup" not in payload
 
 
 @pytest.mark.asyncio

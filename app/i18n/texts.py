@@ -153,12 +153,6 @@ TEXTS: dict[str, dict[str, str]] = {
             "<b>Username:</b> <code>{username}</code>\n"
             "<b>Password:</b> unavailable — please contact support"
         ),
-        # Appended to purchase and renewal only: a trial ends on its own
-        # device-specific setup instead (see app/services/delivery.py).
-        "delivery_tutorial_note": (
-            "Setup instructions and connection details for different platforms and "
-            "protocols are available in the Tutorial section of the main menu."
-        ),
         "tutorial_button": "📘 Tutorial",
         "back_to_main_menu_button": "🔙 Back to Main Menu",
         "partial_payment": (
@@ -195,6 +189,72 @@ TEXTS: dict[str, dict[str, str]] = {
 
         # --- data cap display (catalog.py) ---
         "data_cap_unlimited": "Unlimited",
+        # --- My Services: root, account menu, account info ---
+        "myservices_root": "🛍️ <b>My Services</b>\n\nChoose an option:",
+        "myservices_list_button": "📋 My Accounts",
+        "myservices_add_button": "➕ Add New Account",
+        "back_to_menu_short": "🔙 Back to Menu",
+        "back_plain": "🔙 Back",
+        "account_menu_heading": "🛍 <b>{username}</b>{trial}\n\nChoose an option:",
+        "account_trial_suffix": " (Trial)",
+        "account_info_button": "🗓 View Account Info",
+        "account_renew_button": "♻️ Renew or Upgrade",
+        "account_password_button": "🔑 Change Password",
+        "account_ownership_button": "🔄 Change Ownership",
+        "info_status_label": "Status",
+        "info_volume_label": "Volume",
+        "info_expiry_label": "Expires",
+        "info_expiry_value": "{date} UTC",
+        "info_expiry_pending": "starts at first connection",
+        "info_expiry_unknown": "—",
+        "info_password_unavailable": "unavailable — contact support",
+
+        # --- My Services: change password ---
+        "pw_confirm": (
+            "🔑 A new password will be generated for <code>{username}</code> "
+            "(the username stays the same).\nYou can do this once a month. Continue?"
+        ),
+        "pw_confirm_button": "✅ Yes, generate a new password",
+        "pw_cooldown": "⚠️ This account's password was changed recently. You can change it again in {days} day(s).",
+        "pw_done": "✅ Your new password is ready.",
+        "pw_failed": "⚠️ Couldn't change the password right now. Please try again shortly.",
+        "pw_refused_group": "⚠️ This account can't be changed here — please contact support.",
+
+        # --- My Services: change ownership ---
+        "xfer_prompt": (
+            "🔄 <b>Change Ownership</b>\n\nSend the Telegram @username or numeric ID of the person "
+            "who should own <code>{username}</code>.\nThey must have started this bot, and the account "
+            "moves only after they accept."
+        ),
+        "xfer_not_found": (
+            "❌ No bot user found with that username or ID — they must have started this bot at least once. "
+            "Try again:"
+        ),
+        "xfer_self": "❌ That's you. Send someone else's username or ID:",
+        "xfer_ambiguous": "⚠️ More than one user has had that username. Please send their numeric Telegram ID instead:",
+        "xfer_confirm": "⚠️ <code>{username}</code> will be offered to {recipient}.\nIt stays yours until they accept. Send the request?",
+        "xfer_send_button": "✅ Send request",
+        "xfer_sent": (
+            "📨 Request sent to {recipient}. <code>{username}</code> stays yours until they accept; "
+            "the request expires in 24 hours."
+        ),
+        "xfer_cancel_button": "❌ Cancel request",
+        "xfer_unreachable": "⚠️ Couldn't reach {recipient} — they may have blocked the bot. The request was cancelled.",
+        "xfer_offer": "🔄 {owner} wants to transfer the VPN account <code>{username}</code> ({plan}) to you.\nDo you accept?",
+        "xfer_accept_button": "✅ Accept",
+        "xfer_decline_button": "❌ Decline",
+        "xfer_accepted_recipient": (
+            "✅ <code>{username}</code> is now yours — you'll find it in My Services.\n"
+            "The previous owner may still know its password; you can change it right away from the account's menu."
+        ),
+        "xfer_accepted_owner": "✅ {recipient} accepted — <code>{username}</code> has been transferred.",
+        "xfer_declined_recipient": "Declined — nothing was transferred.",
+        "xfer_declined_owner": "❌ {recipient} declined the transfer of <code>{username}</code>. The account is still yours.",
+        "xfer_cancelled_owner": "Request cancelled — <code>{username}</code> stays yours.",
+        "xfer_cancelled_recipient": "This transfer request was cancelled by the owner.",
+        "xfer_expired": "⌛ This transfer request has expired.",
+        "xfer_invalid": "⚠️ This request is no longer valid.",
+        "xfer_user_id": "user {telegram_id}",
     },
     "fa": {
         "welcome": "👋 به Homeland VPN خوش آمدید.\n\nیکی از گزینه‌های زیر را انتخاب کنید:",
@@ -332,10 +392,6 @@ TEXTS: dict[str, dict[str, str]] = {
             "<b>یوزرنیم:</b> <code>{username}</code>\n"
             "<b>پسورد:</b> در دسترس نیست — لطفاً با پشتیبانی تماس بگیرید"
         ),
-        "delivery_tutorial_note": (
-            "آموزش تنظیمات و اطلاعات اتصال برای پلتفرم‌ها و پروتکل‌های مختلف را "
-            "می‌توانید از بخش «آموزش» در منوی اصلی دریافت کنید."
-        ),
         "tutorial_button": "📘 آموزش",
         "back_to_main_menu_button": "🔙 بازگشت به منوی اصلی",
         "partial_payment": (
@@ -367,6 +423,72 @@ TEXTS: dict[str, dict[str, str]] = {
         "plan_name_2months": "۲ ماه",
         "plan_name_3months": "۳ ماه",
         "data_cap_unlimited": "نامحدود",
+        # --- My Services: root, account menu, account info ---
+        "myservices_root": "🛍️ <b>سرویس‌های من</b>\n\nیک گزینه را انتخاب کنید:",
+        "myservices_list_button": "📋 لیست اکانت‌های من",
+        "myservices_add_button": "➕ افزودن اکانت جدید",
+        "back_to_menu_short": "🔙 بازگشت به منو",
+        "back_plain": "🔙 بازگشت",
+        "account_menu_heading": "🛍 <b>{username}</b>{trial}\n\nیک گزینه را انتخاب کنید:",
+        "account_trial_suffix": " (سرویس تست)",
+        "account_info_button": "🗓 مشاهده اطلاعات اکانت",
+        "account_renew_button": "♻️ تمدید یا ارتقا اشتراک",
+        "account_password_button": "🔑 تغییر پسورد",
+        "account_ownership_button": "🔄 تغییر مالکیت",
+        "info_status_label": "وضعیت",
+        "info_volume_label": "حجم",
+        "info_expiry_label": "تاریخ انقضا",
+        "info_expiry_value": "{date} UTC",
+        "info_expiry_pending": "از اولین اتصال شروع می‌شود",
+        "info_expiry_unknown": "—",
+        "info_password_unavailable": "در دسترس نیست — با پشتیبانی تماس بگیرید",
+
+        # --- My Services: change password ---
+        "pw_confirm": (
+            "🔑 با این کار یک رمز عبور جدید برای <code>{username}</code> ساخته می‌شود "
+            "(نام کاربری تغییر نمی‌کند).\nاین کار را فقط یک‌بار در ماه می‌توانید انجام دهید. ادامه می‌دهید؟"
+        ),
+        "pw_confirm_button": "✅ بله، رمز جدید ساخته شود",
+        "pw_cooldown": "⚠️ رمز عبور این سرویس به‌تازگی تغییر کرده. تا {days} روز دیگر می‌توانید دوباره رمز را عوض کنید.",
+        "pw_done": "✅ رمز عبور جدید شما آماده است.",
+        "pw_failed": "⚠️ در حال حاضر امکان تغییر رمز عبور نیست. لطفاً کمی بعد دوباره تلاش کنید.",
+        "pw_refused_group": "⚠️ این اکانت از اینجا قابل تغییر نیست — لطفاً با پشتیبانی تماس بگیرید.",
+
+        # --- My Services: change ownership ---
+        "xfer_prompt": (
+            "🔄 <b>تغییر مالکیت</b>\n\nیوزرنیم تلگرام (با @) یا آیدی عددی کسی را که باید مالک "
+            "<code>{username}</code> شود بفرستید.\nاو باید حداقل یک‌بار ربات را استارت کرده باشد و اکانت "
+            "فقط پس از تأیید او منتقل می‌شود."
+        ),
+        "xfer_not_found": (
+            "❌ کاربری با این یوزرنیم یا آیدی یافت نشد — کاربر مقصد باید حداقل یک‌بار ربات را استارت کرده باشد. "
+            "دوباره وارد کنید:"
+        ),
+        "xfer_self": "❌ این خودتان هستید. یوزرنیم یا آیدی شخص دیگری را بفرستید:",
+        "xfer_ambiguous": "⚠️ بیش از یک کاربر این یوزرنیم را داشته‌اند. لطفاً آیدی عددی تلگرام او را بفرستید:",
+        "xfer_confirm": "⚠️ اکانت <code>{username}</code> به {recipient} پیشنهاد می‌شود.\nتا زمانی که او تأیید نکند، اکانت متعلق به شما می‌ماند. درخواست ارسال شود؟",
+        "xfer_send_button": "✅ ارسال درخواست",
+        "xfer_sent": (
+            "📨 درخواست برای {recipient} ارسال شد. اکانت <code>{username}</code> تا زمان تأیید او متعلق به شما "
+            "می‌ماند؛ این درخواست پس از ۲۴ ساعت منقضی می‌شود."
+        ),
+        "xfer_cancel_button": "❌ لغو درخواست",
+        "xfer_unreachable": "⚠️ امکان ارسال پیام به {recipient} نبود — ممکن است ربات را مسدود کرده باشد. درخواست لغو شد.",
+        "xfer_offer": "🔄 {owner} می‌خواهد اکانت VPN <code>{username}</code> ({plan}) را به شما منتقل کند.\nقبول می‌کنید؟",
+        "xfer_accept_button": "✅ قبول",
+        "xfer_decline_button": "❌ رد",
+        "xfer_accepted_recipient": (
+            "✅ اکانت <code>{username}</code> اکنون متعلق به شماست — آن را در «سرویس‌های من» پیدا می‌کنید.\n"
+            "ممکن است مالک قبلی هنوز رمز عبور را بداند؛ می‌توانید همین حالا از منوی اکانت آن را تغییر دهید."
+        ),
+        "xfer_accepted_owner": "✅ {recipient} تأیید کرد — اکانت <code>{username}</code> منتقل شد.",
+        "xfer_declined_recipient": "رد شد — چیزی منتقل نشد.",
+        "xfer_declined_owner": "❌ {recipient} انتقال اکانت <code>{username}</code> را رد کرد. اکانت همچنان متعلق به شماست.",
+        "xfer_cancelled_owner": "درخواست لغو شد — اکانت <code>{username}</code> متعلق به شما می‌ماند.",
+        "xfer_cancelled_recipient": "این درخواست انتقال توسط مالک لغو شد.",
+        "xfer_expired": "⌛ این درخواست انتقال منقضی شده است.",
+        "xfer_invalid": "⚠️ این درخواست دیگر معتبر نیست.",
+        "xfer_user_id": "کاربر {telegram_id}",
     },
 }
 

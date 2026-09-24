@@ -38,8 +38,8 @@ Redis (FSM), pydantic-settings, Docker Compose.
   shared IBSng instance.
 - `app/services/tutorial_delivery.py` - `deliver_setup()` sends the
   OpenVPN profile + guide + download link for a (protocol, platform)
-  pair. Shared by the trial flow now, Buy/Renew later; it deliberately
-  does NOT send credentials (that's the caller's job).
+  pair (My Services); `deliver_device_setup()` is the handover's step 4.
+  Neither sends credentials (that's the caller's job).
 - `/admintutorials` (`app/bot/handlers/tutorial_admin.py`) - the admin
   flow for uploading guides, OpenVPN profiles, and download links.
   Standalone command, gated by `has_level(..., "support")`, listed in
@@ -64,8 +64,8 @@ Redis (FSM), pydantic-settings, Docker Compose.
   only when that content exists. All sending goes through
   `app/services/tutorial_delivery.py`'s `send_guide` / `send_profile` /
   `send_download_links`, which `deliver_setup` also composes for My
-  Services and `deliver_device_setup` for the Trial - never add a second
-  path that sends this material.
+  Services and `deliver_device_setup` for the handover - never add a
+  second path that sends this material.
 - `app/services/payments/plisio.py` - the ONLY place that talks to
   Plisio. GET-only API (`api_key` as a query param, `{"status","data"}`
   envelopes, so a failure can arrive with HTTP 200), and ONE secret key
@@ -80,29 +80,57 @@ Redis (FSM), pydantic-settings, Docker Compose.
 - `app/services/payments/confirmation.py` - the ONE path from "invoice
   paid" to "service provisioned", used by both the Plisio callback and
   the reconciler.
-- Trial delivery (`app/bot/handlers/trial.py`) is strictly device-first:
-  confirm → protocol → device (`trial:os:<protocol>:<platform>`, asked
-  for EVERY protocol) → credentials with no buttons and no Tutorial note
-  → `deliver_device_setup` for that device only → the Tutorial/main-menu
-  pair attached to whichever message came last. Android+L2TP is refused
-  before credentials go out. `trial:platform:<id>` stays as an L2TP alias
-  for old buttons in chat history.
-- `app/services/openvpn_setup.py` - the ONE post-handover setup step,
-  called by purchase, renewal and My Services' resend (the trial already
-  knows the device, so it sends that device's link directly instead). Sends the
+- `app/services/handover.py` - the ONE handover sequence, run by trial,
+  purchase and renewal alike: device → protocol (only those the device
+  supports, per `protocols_for_platform` in `app/services/tutorials.py`;
+  skipped when one is left, so Android goes straight to OpenVPN) →
+  credentials (no buttons) → `deliver_device_setup` for that device only
+  → the Tutorial/main-menu pair on whichever message came last. Pickers
+  are `ho:<source>:<ref>:…` (`app/bot/handlers/handover.py`): `t` + the
+  trial's `vpn_users.id`, or `p` + a `payments.id`, ownership-checked on
+  every tap; the password never travels in callback data. A paid order
+  sends its credentials the moment the payment activates, BEFORE the
+  pickers (`HandoverAccount.credentials_sent_up_front`), so a paying
+  customer never depends on a tap to learn them; the taps then send only
+  the setup and the pair. Its device picker has no main-menu button,
+  because that tap would edit away the route to the setup. Never build a second copy of this sequence or
+  another Android/L2TP check; a new flow gets a new source. Old
+  `trial:os`/`trial:platform`/`trial:protocol` buttons still work.
+- My Services (`app/bot/handlers/myservices.py`, redesigned 2026-09-25 to
+  AloBot's layout): root menu (`menu:myservices`: account list · Add new
+  account = the Buy flow's own `menu:buy` · Back) → list labelled by
+  USERNAME (`myservices:list`; plan names repeat, usernames don't) →
+  per-account action menu (`myservices:view:<id>`: info · renew, hidden for
+  trials · change password · change ownership) → info screen
+  (`myservices:detail:<id>`, built by `app/services/account_view.py`).
+  IBSng's `nearest_exp_date` is Gregorian and so is every screen - there
+  is no Jalali anywhere. Persian "label: value" lines go through
+  `app/i18n/bidi.py`'s `info_line` (RLM + FSI…PDI, marks outside
+  `<code>`); never hand-build a Persian credential line.
+- Reset Password (`myservices:pw`/`pwdo`) = AloBot's: confirm first, once
+  per 30 days (`password_changed_at`), `reset_vpn_password` locks the
+  row, re-checks `is_homeland_group`, then the single IBSng path. Not
+  logged (AloBot doesn't).
+- Change Ownership (`app/bot/handlers/ownership.py`,
+  `app/services/ownership.py`): ownership = `vpn_users.telegram_id`, as in
+  AloBot, but the account moves ONLY when the named recipient accepts
+  (`ownership_transfers` row, 24h expiry, owner can cancel, newest offer
+  supersedes older ones, every tap re-checked under row locks). Accepting
+  clears `password_changed_at` so the new owner can lock the old one out
+  at once, and posts an `OWNERSHIP` entry (🔑 Accounts topic). AloBot's
+  version moves instantly on the owner's word; never regress to that.
+- `app/services/openvpn_setup.py` - My Services' OpenVPN resend: the
   .ovpn config, then four platform buttons (`ovpn:link:<id>`), and only
-  the tapped platform's download link - it replaced a message listing
-  all four at once. It looks up NO guide: none exists for OpenVPN, and
-  the lookup's "not ready" answer was reaching customers mid-purchase.
-  `deliver_setup` passes `notify_if_missing=False` for the same reason;
-  Tutorials keeps the default, where "not ready" answers an explicit
-  request.
-- `app/services/delivery.py` - the ONE account-delivery message, sent by
-  all three handover flows (purchase, renewal, trial). The headline
-  differs, and purchase/renewal end with the Tutorial-section note
-  (`delivery_tutorial_note`) and the Tutorial/main-menu buttons while the
-  trial's carries neither; the body and tap-to-copy credentials are
-  shared, so never build this text anywhere else. Callers
+  the tapped platform's download link. It looks up NO guide: none
+  exists for OpenVPN, and the lookup's "not ready" answer was reaching
+  customers mid-purchase. `deliver_setup` passes
+  `notify_if_missing=False` for the same reason; Tutorials keeps the
+  default, where "not ready" answers an explicit request.
+- `app/services/delivery.py` - the ONE account-delivery message, step 3
+  of the handover for all three flows (purchase, renewal, trial). Only
+  the headline differs; it carries no buttons (the pair ends the
+  sequence), and the body and tap-to-copy credentials are shared, so
+  never build this text anywhere else. Callers
   pass `data_cap_mb` themselves: a paid order passes the snapshot on its
   payment, a trial passes the trial plan's value. A purchase carries its
   password; a renewal and a trial read it back from IBSng, and an

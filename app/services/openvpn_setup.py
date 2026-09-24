@@ -1,11 +1,12 @@
-"""The OpenVPN setup step every account handover ends with.
+"""My Services' OpenVPN resend.
 
 Sends the .ovpn config, then asks which device the customer is on and
-sends only that platform's download link once they answer. It replaced a
-single message that listed all four links at once.
+sends only that platform's download link once they answer. Account
+handovers (trial, purchase, renewal) no longer use it: they ask for the
+device first and send that device's setup directly (app/services/handover.py).
 
 Deliberately looks up NO guide. None has ever been uploaded for OpenVPN,
-so the lookup's honest "this guide is not ready" answer was reaching
+so the lookup's honest "this guide is not ready" answer used to reach
 customers in the middle of a successful purchase. Guides live in the
 Tutorials section, which this step's keyboard links to.
 """

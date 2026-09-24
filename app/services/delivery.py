@@ -1,15 +1,13 @@
 """The ONE account-delivery message.
 
 Three flows hand a customer a working account - a new purchase, a
-renewal, and a free trial - and every one of them sends this. The
-headline differs, and so does the ending: purchase and renewal close
-with a pointer to the Tutorial section and the Tutorial/main-menu
-buttons, while a trial's message is one step of a device-first sequence
-(see app/bot/handlers/trial.py) that ends on the chosen device's setup
-material, so it carries neither and the trial attaches the buttons to
-its own last message. The body and credential formatting are identical,
-so there is a single template per language to keep correct rather than
-three that drift apart.
+renewal, and a free trial - and every one of them sends this, as step 3
+of the shared handover sequence (app/services/handover.py). Only the
+headline differs. It carries no buttons and no pointer to the Tutorial
+section: the sequence continues with the chosen device's setup and ends
+with the Tutorial/main-menu pair on its last message. The body and
+credential formatting are identical, so there is a single template per
+language to keep correct rather than three that drift apart.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ import logging
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 
-from app.bot.keyboards.delivery import order_delivered_keyboard
 from app.db.models.plan import Plan
 from app.i18n.texts import t
 from app.services.catalog import format_data_cap, plan_display_name
@@ -65,10 +62,7 @@ def build_delivery_text(
         body = t("delivery_body", lang, password=password, **fields)
     else:
         body = t("delivery_body_no_password", lang, **fields)
-    text = f"{headline}\n\n{body}"
-    if kind != TRIAL:
-        text += f"\n\n{t('delivery_tutorial_note', lang)}"
-    return text
+    return f"{headline}\n\n{body}"
 
 
 async def send_account_delivery(
@@ -98,9 +92,8 @@ async def send_account_delivery(
         lang=lang,
         fallback_plan_name=fallback_plan_name,
     )
-    reply_markup = None if kind == TRIAL else order_delivered_keyboard(lang)
     try:
-        message = await bot.send_message(telegram_id, text, reply_markup=reply_markup)
+        message = await bot.send_message(telegram_id, text)
     except TelegramForbiddenError:
         # The account IS provisioned; the customer has merely blocked the
         # bot. Never let that look like a delivery failure upstream.

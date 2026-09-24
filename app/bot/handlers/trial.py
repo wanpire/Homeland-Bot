@@ -1,27 +1,23 @@
 from __future__ import annotations
 
-import logging
-
-from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy import select
 
+from app.bot.handlers.handover import platform_back_callback, run_handover
+from app.bot.keyboards.handover import handover_platform_keyboard
 from app.bot.keyboards.menus import show_screen
-from app.bot.keyboards.delivery import order_delivered_keyboard
-from app.bot.keyboards.trial import back_to_menu_keyboard, trial_confirm_keyboard, trial_os_keyboard, trial_protocol_keyboard
+from app.bot.keyboards.trial import back_to_menu_keyboard, trial_confirm_keyboard
 from app.db.models.tutorial_platform import TutorialPlatform
 from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.i18n.texts import t
 from app.services.catalog import list_plans
-from app.services.adminlog import TRIAL as LOG_TRIAL, log_event
-from app.services.delivery import TRIAL, send_account_delivery
+from app.services.handover import TRIAL_SOURCE, load_handover_account
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
-from app.services.tutorial_delivery import deliver_device_setup
-from app.services.tutorials import is_protocol_valid_for_platform, list_platforms, list_protocols
+from app.services.tutorials import list_platforms, list_protocols
 from app.services.vpn_users import (
     TrialAlreadyUsedError,
     VPNUsernameTakenError,
@@ -32,74 +28,7 @@ from app.services.vpn_users import (
 
 router = Router(name="trial")
 
-logger = logging.getLogger(__name__)
-
 _MAX_CREATE_ATTEMPTS = 3
-
-
-async def _send_trial_credentials(bot: Bot, telegram_id: int, lang: str) -> int | None:
-    """The trial's credentials were generated in an earlier callback with
-    nothing carried forward (no FSM state, by design - a password must
-    never travel in callback_data), so they are looked up fresh here: the
-    just-created VPNUser row gives the username, and IBSng re-reads the
-    password it stored.
-
-    The message itself is the shared one every delivery flow sends - see
-    app/services/delivery.py. Returns its message id, or None if nothing
-    was sent."""
-    async with async_session_maker() as session:
-        vpn_user = (
-            await session.execute(
-                select(VPNUser)
-                .where(VPNUser.telegram_id == telegram_id, VPNUser.is_trial.is_(True))
-                .order_by(VPNUser.id.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if vpn_user is None:
-            return None
-        trial_plans = await list_plans(session, category="trial")
-        plan = trial_plans[0] if trial_plans else None
-
-    password: str | None = None
-    try:
-        async with IBSngClient() as client:
-            password = await client.get_user_password(username=vpn_user.ibsng_username)
-        if password is None:
-            # IBSng has no such user, or its getUserInfo response carries
-            # no stored password. The account still exists, so the
-            # delivery message degrades to its no-password variant rather
-            # than printing a literal "None".
-            logger.error(
-                "IBSng returned no password for just-created trial account %r (telegram_id=%s)",
-                vpn_user.ibsng_username,
-                telegram_id,
-            )
-    except IBSngError:
-        logger.exception(
-            "Could not read the trial password back for %r (telegram_id=%s)",
-            vpn_user.ibsng_username,
-            telegram_id,
-        )
-
-    message_id = await send_account_delivery(
-        bot,
-        telegram_id,
-        kind=TRIAL,
-        plan=plan,
-        data_cap_mb=vpn_user.data_cap_mb,
-        username=vpn_user.ibsng_username,
-        password=password,
-        lang=lang,
-    )
-    await log_event(
-        bot,
-        LOG_TRIAL,
-        User=str(telegram_id),
-        Plan=plan.name if plan is not None else "Trial",
-        Account=vpn_user.ibsng_username,
-    )
-    return message_id
 
 
 @router.callback_query(F.data == "menu:trial")
@@ -175,48 +104,67 @@ async def trial_confirm_cb(callback: CallbackQuery, lang: str) -> None:
         await callback.answer()
         return
 
-    async with async_session_maker() as session:
-        protocols = await list_protocols(session)
-    if callback.message is not None:
-        await callback.message.edit_text(t("protocol_prompt", lang), reply_markup=trial_protocol_keyboard(protocols, lang))
+    # Step 1 of the shared handover sequence (app/services/handover.py):
+    # device first, then protocol, then credentials and setup.
+    await _show_device_picker(callback, vpn_user.id, lang)
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("trial:protocol:"))
-async def trial_protocol_cb(callback: CallbackQuery, lang: str) -> None:
-    """Step 3: the device, asked for every protocol before anything is
-    sent, so the setup that follows the credentials is for that device
-    only and never asks again."""
-    try:
-        protocol_id = int(callback.data.split(":")[-1])
-    except ValueError:
-        await callback.answer()
-        return
+async def _show_device_picker(callback: CallbackQuery, vpn_user_id: int, lang: str) -> None:
     async with async_session_maker() as session:
         platforms = await list_platforms(session)
     if callback.message is not None:
         await callback.message.edit_text(
             t("platform_prompt", lang),
-            reply_markup=trial_os_keyboard(protocol_id, platforms, lang),
+            reply_markup=handover_platform_keyboard(
+                TRIAL_SOURCE, vpn_user_id, platforms, lang, back_callback=platform_back_callback(TRIAL_SOURCE)
+            ),
         )
+
+
+async def _latest_trial_id(telegram_id: int) -> int | None:
+    """The legacy callbacks below carry no account id; they always meant
+    the user's most recent trial."""
+    async with async_session_maker() as session:
+        return (
+            await session.execute(
+                select(VPNUser.id)
+                .where(VPNUser.telegram_id == telegram_id, VPNUser.is_trial.is_(True))
+                .order_by(VPNUser.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+
+# --- Legacy callbacks -------------------------------------------------
+# Buttons from the previous protocol-first flow may still sit in a
+# customer's chat history, so they keep working: the two that name a
+# device deliver through the shared sequence, the two that do not open
+# its device picker.
+
+
+@router.callback_query(F.data.startswith("trial:protocol:") | (F.data == "trial:back_to_protocol"))
+async def trial_legacy_picker_cb(callback: CallbackQuery, lang: str) -> None:
+    vpn_user_id = await _latest_trial_id(callback.from_user.id)
+    if vpn_user_id is not None:
+        await _show_device_picker(callback, vpn_user_id, lang)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("trial:os:"))
-async def trial_os_cb(callback: CallbackQuery, lang: str) -> None:
+async def trial_legacy_os_cb(callback: CallbackQuery, lang: str) -> None:
     parts = callback.data.split(":")
     try:
         protocol_id, platform_id = int(parts[2]), int(parts[3])
     except (IndexError, ValueError):
         await callback.answer()
         return
-    await _deliver_trial(callback, protocol_id=protocol_id, platform_id=platform_id, lang=lang)
+    await _legacy_deliver(callback, protocol_id=protocol_id, platform_id=platform_id, lang=lang)
 
 
 @router.callback_query(F.data.startswith("trial:platform:"))
-async def trial_platform_cb(callback: CallbackQuery, lang: str) -> None:
-    """The previous flow's L2TP-only device buttons. Still honoured,
-    because a message carrying them may sit in a customer's history."""
+async def trial_legacy_platform_cb(callback: CallbackQuery, lang: str) -> None:
+    """The oldest flow's L2TP-only device buttons."""
     try:
         platform_id = int(callback.data.split(":")[-1])
     except ValueError:
@@ -228,67 +176,20 @@ async def trial_platform_cb(callback: CallbackQuery, lang: str) -> None:
     if l2tp is None:
         await callback.answer()
         return
-    await _deliver_trial(callback, protocol_id=l2tp.id, platform_id=platform_id, lang=lang)
+    await _legacy_deliver(callback, protocol_id=l2tp.id, platform_id=platform_id, lang=lang)
 
 
-async def _deliver_trial(callback: CallbackQuery, *, protocol_id: int, platform_id: int, lang: str) -> None:
-    """Steps 4-6, each its own message: credentials (no buttons), then the
-    chosen device's setup material, then the Tutorial/main-menu pair on
-    whichever of those came last."""
-    telegram_id = callback.from_user.id
+async def _legacy_deliver(callback: CallbackQuery, *, protocol_id: int, platform_id: int, lang: str) -> None:
+    vpn_user_id = await _latest_trial_id(callback.from_user.id)
     async with async_session_maker() as session:
+        account = (
+            await load_handover_account(session, TRIAL_SOURCE, vpn_user_id, callback.from_user.id)
+            if vpn_user_id is not None
+            else None
+        )
         protocol = await session.get(TutorialProtocol, protocol_id)
         platform = await session.get(TutorialPlatform, platform_id)
-    if protocol is None or platform is None:
+    if account is None or protocol is None or platform is None:
         await callback.answer()
         return
-
-    if not is_protocol_valid_for_platform(platform.label, protocol.label):
-        # Checked before the credentials go out, since nothing after them
-        # can be taken back. The picker stays so Back still reaches the
-        # protocol step.
-        await callback.bot.send_message(telegram_id, t("android_l2tp_unsupported", lang))
-        await callback.answer()
-        return
-
-    if callback.message is not None:
-        # One device per picker: a second tap would resend the whole
-        # sequence. Two taps racing each other both get here, but only one
-        # can strip the keyboard - Telegram refuses the other as "not
-        # modified", and that one stops.
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except TelegramBadRequest as exc:
-            if "not modified" in str(exc).lower():
-                await callback.answer()
-                return
-            logger.warning("Could not disarm the trial device picker for %s: %s", telegram_id, exc)
-
-    last_message_id = await _send_trial_credentials(callback.bot, telegram_id, lang)
-    if last_message_id is None:
-        await callback.answer()
-        return
-    async with async_session_maker() as session:
-        setup_message_id = await deliver_device_setup(
-            callback.bot, telegram_id, session, protocol=protocol, platform=platform, lang=lang
-        )
-    try:
-        await callback.bot.edit_message_reply_markup(
-            chat_id=telegram_id,
-            message_id=setup_message_id or last_message_id,
-            reply_markup=order_delivered_keyboard(lang),
-        )
-    except TelegramAPIError:
-        # Everything that matters has been delivered; the buttons are a
-        # convenience and the main menu is still one /start away.
-        logger.warning("Could not attach the closing buttons to %s's trial delivery", telegram_id, exc_info=True)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "trial:back_to_protocol")
-async def trial_back_to_protocol_cb(callback: CallbackQuery, lang: str) -> None:
-    async with async_session_maker() as session:
-        protocols = await list_protocols(session)
-    if callback.message is not None:
-        await callback.message.edit_text(t("protocol_prompt", lang), reply_markup=trial_protocol_keyboard(protocols, lang))
-    await callback.answer()
+    await run_handover(callback, account, protocol=protocol, platform=platform, lang=lang)

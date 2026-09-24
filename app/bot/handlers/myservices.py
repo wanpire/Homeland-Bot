@@ -1,103 +1,170 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.menus import show_screen
 from app.bot.keyboards.myservices import (
+    account_menu_keyboard,
+    back_to_account_keyboard,
     myservices_detail_keyboard,
     myservices_empty_keyboard,
     myservices_list_keyboard,
     myservices_platform_keyboard,
     myservices_protocol_keyboard,
+    myservices_root_keyboard,
+    password_confirm_keyboard,
 )
 from app.bot.keyboards.trial import back_to_menu_keyboard
 from app.db.models.tutorial_protocol import TutorialProtocol
-from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
 from app.i18n.texts import t
-from app.services.catalog import get_plan, plan_display_name
+from app.services.account_view import build_account_info, credential_lines
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError
 from app.services.openvpn_setup import send_openvpn_setup
 from app.services.tutorial_delivery import deliver_setup
 from app.services.tutorials import list_platforms, list_protocols
-from app.services.vpn_users import get_owned_vpn_user, get_service_status, list_services_with_status
+from app.services.vpn_users import (
+    ForeignGroupError,
+    PasswordChangeCooldownError,
+    cooldown_days_left,
+    get_owned_vpn_user,
+    list_services_with_status,
+    password_change_remaining,
+    reset_vpn_password,
+)
 
 router = Router(name="myservices")
 
+logger = logging.getLogger(__name__)
 
-@router.callback_query(F.data == "menu:myservices")
-async def myservices_list_cb(callback: CallbackQuery, lang: str) -> None:
-    telegram_id = callback.from_user.id
-    async with async_session_maker() as session, IBSngClient() as client:
-        rows = await list_services_with_status(session, client, telegram_id)
 
-    if not rows:
-        if callback.message is not None:
-            await show_screen(callback.message, t("myservices_empty", lang), myservices_empty_keyboard(lang))
-        await callback.answer()
-        return
+def _vpn_user_id(data: str) -> int | None:
+    """Callback data is untrusted: a malformed or out-of-range id (Postgres
+    int4) reads as not found rather than raising."""
+    try:
+        value = int(data.split(":")[2])
+    except (IndexError, ValueError):
+        return None
+    return value if 0 < value < 2**31 else None
 
+
+async def _not_found(callback: CallbackQuery, lang: str) -> None:
     if callback.message is not None:
-        await show_screen(callback.message, t("myservices_heading", lang), myservices_list_keyboard(rows, lang))
+        await callback.message.edit_text(t("myservices_not_found", lang), reply_markup=back_to_menu_keyboard(lang))
     await callback.answer()
 
 
-async def _detail_text(session: AsyncSession, client: IBSngClient, vpn_user: VPNUser, lang: str) -> str:
-    plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
-    name = plan_display_name(plan, lang) if plan is not None else vpn_user.ibsng_group
-    status, expiry = await get_service_status(client, vpn_user.ibsng_username)
+@router.callback_query(F.data == "menu:myservices")
+async def myservices_root_cb(callback: CallbackQuery, lang: str, state: FSMContext) -> None:
+    await state.clear()
+    if callback.message is not None:
+        await show_screen(callback.message, t("myservices_root", lang), myservices_root_keyboard(lang))
+    await callback.answer()
 
-    if status == "active":
-        status_line = t("status_line_active", lang, date=f"{expiry:%Y-%m-%d %H:%M}")
-    elif status == "expired":
-        status_line = t("status_line_expired", lang, date=f"{expiry:%Y-%m-%d %H:%M}")
-    elif status == "pending":
-        status_line = t("status_line_pending", lang)
-    else:
-        status_line = t("status_line_unknown", lang)
 
-    # Mirrors app/bot/handlers/trial.py's _send_trial_credentials: a
-    # transient IBSng failure fetching the password must never crash the
-    # screen showing it - get_service_status above is already immune to
-    # this (it never raises), but get_user_password has no such
-    # guarantee, so it needs its own try/except here.
-    try:
-        password = await client.get_user_password(username=vpn_user.ibsng_username)
-    except IBSngError:
-        password = None
-    password_line = (
-        f"{t('password_label', lang)}: <code>{password}</code>"
-        if password is not None
-        else t("password_unavailable", lang)
-    )
+@router.callback_query(F.data == "myservices:list")
+async def myservices_list_cb(callback: CallbackQuery, lang: str, state: FSMContext) -> None:
+    await state.clear()
+    async with async_session_maker() as session, IBSngClient() as client:
+        rows = await list_services_with_status(session, client, callback.from_user.id)
 
-    return (
-        f"🔑 <b>{name}</b>\n"
-        f"{status_line}\n\n"
-        f"{t('username_label', lang)}: <code>{vpn_user.ibsng_username}</code>\n"
-        f"{password_line}"
-    )
+    if callback.message is not None:
+        if rows:
+            await show_screen(callback.message, t("myservices_heading", lang), myservices_list_keyboard(rows, lang))
+        else:
+            await show_screen(callback.message, t("myservices_empty", lang), myservices_empty_keyboard(lang))
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("myservices:view:"))
-async def myservices_view_cb(callback: CallbackQuery, lang: str) -> None:
-    vpn_user_id = int(callback.data.split(":")[-1])
-    telegram_id = callback.from_user.id
+async def myservices_view_cb(callback: CallbackQuery, lang: str, state: FSMContext) -> None:
+    """The account's action menu. Clears FSM state, so a Change Ownership
+    prompt left open (by tapping Back) never swallows the next message."""
+    await state.clear()
+    vpn_user_id = _vpn_user_id(callback.data)
     async with async_session_maker() as session:
-        vpn_user = await get_owned_vpn_user(session, vpn_user_id, telegram_id)
+        vpn_user = await get_owned_vpn_user(session, vpn_user_id, callback.from_user.id) if vpn_user_id else None
+    if vpn_user is None:
+        await _not_found(callback, lang)
+        return
+    trial = t("account_trial_suffix", lang) if vpn_user.is_trial else ""
+    if callback.message is not None:
+        await callback.message.edit_text(
+            t("account_menu_heading", lang, username=vpn_user.ibsng_username, trial=trial),
+            reply_markup=account_menu_keyboard(vpn_user.id, is_trial=vpn_user.is_trial, lang=lang),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("myservices:detail:"))
+async def myservices_detail_cb(callback: CallbackQuery, lang: str) -> None:
+    vpn_user_id = _vpn_user_id(callback.data)
+    async with async_session_maker() as session:
+        vpn_user = await get_owned_vpn_user(session, vpn_user_id, callback.from_user.id) if vpn_user_id else None
         if vpn_user is None:
-            if callback.message is not None:
-                await callback.message.edit_text(t("myservices_not_found", lang), reply_markup=back_to_menu_keyboard(lang))
-            await callback.answer()
+            await _not_found(callback, lang)
             return
         async with IBSngClient() as client:
-            text = await _detail_text(session, client, vpn_user, lang)
-
+            text = await build_account_info(session, client, vpn_user, lang)
     if callback.message is not None:
         await callback.message.edit_text(text, reply_markup=myservices_detail_keyboard(vpn_user.id, lang))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("myservices:pw:"))
+async def myservices_password_start_cb(callback: CallbackQuery, lang: str) -> None:
+    """Confirm first: a new password locks out every device still using
+    the old one."""
+    vpn_user_id = _vpn_user_id(callback.data)
+    async with async_session_maker() as session:
+        vpn_user = await get_owned_vpn_user(session, vpn_user_id, callback.from_user.id) if vpn_user_id else None
+    if vpn_user is None:
+        await _not_found(callback, lang)
+        return
+    remaining = password_change_remaining(vpn_user)
+    if remaining is not None:
+        text = t("pw_cooldown", lang, days=cooldown_days_left(remaining))
+        markup = back_to_account_keyboard(vpn_user.id, lang)
+    else:
+        text = t("pw_confirm", lang, username=vpn_user.ibsng_username)
+        markup = password_confirm_keyboard(vpn_user.id, lang)
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=markup)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("myservices:pwdo:"))
+async def myservices_password_do_cb(callback: CallbackQuery, lang: str) -> None:
+    vpn_user_id = _vpn_user_id(callback.data)
+    if vpn_user_id is None:
+        await _not_found(callback, lang)
+        return
+    try:
+        async with async_session_maker() as session, IBSngClient() as client:
+            result = await reset_vpn_password(
+                session, client, vpn_user_id=vpn_user_id, telegram_id=callback.from_user.id
+            )
+    except PasswordChangeCooldownError as exc:
+        text = t("pw_cooldown", lang, days=cooldown_days_left(exc.remaining))
+    except ForeignGroupError:
+        logger.warning("Password reset refused: account %s is not in a Homeland group", vpn_user_id)
+        text = t("pw_refused_group", lang)
+    except IBSngError:
+        logger.exception("Password reset failed for account %s", vpn_user_id)
+        text = t("pw_failed", lang)
+    else:
+        if result is None:
+            await _not_found(callback, lang)
+            return
+        vpn_user, new_password = result
+        text = f"{t('pw_done', lang)}\n\n{credential_lines(vpn_user.ibsng_username, new_password, lang)}"
+    if callback.message is not None:
+        await callback.message.edit_text(text, reply_markup=back_to_account_keyboard(vpn_user_id, lang))
     await callback.answer()
 
 

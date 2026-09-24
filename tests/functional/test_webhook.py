@@ -12,6 +12,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from app.config import get_settings
 from app.db.session import async_session_maker
 from tests.fakes.fake_bot_session import FakeBotSession
+from tests.handover_helpers import latest_device_picker, pair_attachments, tap_through_handover
 
 
 _HEADERS = {"Content-Type": "application/json"}
@@ -80,7 +81,7 @@ async def test_webhook_ignores_out_of_int32_range_order_id(bot: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_webhook_finished_activates_purchase_and_notifies_user(
-    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.services.payments.crypto_provider import CryptoProvider
     from app.services.payments.service import create_crypto_payment
@@ -120,15 +121,27 @@ async def test_webhook_finished_activates_purchase_and_notifies_user(
         vpn_user = await session.get(VPNUser, refreshed.vpn_user_id)
         assert vpn_user.telegram_id == 970
 
-    sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
-    # Two messages now: the credentials, then the OpenVPN setup prompt.
+    # Payment time sends the credentials, then the device picker; the
+    # setup material waits for the device (and protocol) choice.
+    sent = [c for c in fake_session.calls if c[0] in ("sendMessage", "sendDocument")]
+    assert len(sent) == 2
     assert "your order has been placed successfully" in sent[0][1]["text"].lower()
-    assert "download openvpn connect" in sent[-1][1]["text"].lower()
+    assert "reply_markup" not in sent[0][1]
+    assert "which device" in sent[1][1]["text"].lower()
+    picker = latest_device_picker(fake_session, 970)
+    assert picker["iOS"].startswith(f"ho:p:{payment.id}:os:")
+    assert "menu:root" not in picker.values(), "no way to edit the only route to the credentials away"
+
+    await tap_through_handover(dispatcher, bot, fake_session, 970, platform="Windows", protocol="OpenVPN")
+    credentials = [c for c in fake_session.calls if c[0] == "sendMessage" and "🎉" in c[1]["text"]]
+    assert len(credentials) == 1, "the taps never resend the credentials"
+    assert not any("ovpn:link:" in str(c[1]) for c in fake_session.calls), "no second platform picker"
+    assert len(pair_attachments(fake_session)) == 1
 
 
 @pytest.mark.asyncio
 async def test_order_delivery_message_in_persian(
-    bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.services.bot_users import record_seen, set_language
     from app.services.payments.crypto_provider import CryptoProvider
@@ -163,9 +176,14 @@ async def test_order_delivery_message_in_persian(
 
     sent = [c for c in fake_session.calls if c[0] == "sendMessage"]
     text = sent[0][1]["text"]
+    assert "روی کدام دستگاه" in sent[1][1]["text"]
+
+    await tap_through_handover(dispatcher, bot, fake_session, 990)
     assert "سفارش شما با موفقیت ثبت شد" in text
     assert "یوزرنیم:" in text and "پسورد:" in text
-    buttons = {b["text"]: b["callback_data"] for row in sent[0][1]["reply_markup"]["inline_keyboard"] for b in row}
+    pairs = pair_attachments(fake_session)
+    assert len(pairs) == 1
+    buttons = {b["text"]: b["callback_data"] for row in pairs[0]["reply_markup"]["inline_keyboard"] for b in row}
     assert buttons["📘 آموزش"] == "menu:tutorials"
     assert buttons["🔙 بازگشت به منوی اصلی"] == "menu:root"
 
@@ -209,8 +227,6 @@ async def test_webhook_duplicate_finished_delivery_is_idempotent(
         rows = (await session.execute(select(VPNUser).where(VPNUser.telegram_id == 971))).scalars().all()
     assert len(rows) == 1  # NOT two - the second IPN delivery was a no-op
 
-    # Count the delivery message specifically: the OpenVPN setup prompt
-    # now follows it, so a bare message count no longer means anything.
     sent = [c for c in fake_session.calls if c[0] == "sendMessage" and "🎉" in (c[1].get("text") or "")]
     assert len(sent) == 1  # only the first delivery notified the user
 
@@ -467,14 +483,8 @@ async def test_webhook_concurrent_finished_deliveries_never_double_provision(
     assert len(sent) >= 1
     for _, payload in sent:
         text = payload["text"].lower()
-        # The OpenVPN setup prompt legitimately follows a delivery, so it
-        # is an expected third shape here alongside success and the
-        # contact-support fallback.
-        assert (
-            "order has been placed" in text
-            or "technical issue" in text
-            or "download openvpn connect" in text
-        )
+        # Success is the credentials, then the handover's device prompt.
+        assert "order has been placed" in text or "which device" in text or "technical issue" in text
 
 
 @pytest.mark.asyncio

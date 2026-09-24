@@ -23,9 +23,7 @@ from app.db.models.payment import Payment
 from app.i18n.texts import t
 from app.services.adminlog import PURCHASE, RENEWAL, log_event
 from app.services.bot_users import get_language
-from app.services.catalog import get_plan
-from app.services.delivery import PURCHASE, RENEWAL, send_account_delivery
-from app.services.openvpn_setup import send_openvpn_setup
+from app.services.handover import send_handover_prompt
 from app.services.ibsng.client import IBSngClient
 from app.services.ibsng.exceptions import IBSngError, IBSngUserExistsError
 from app.services.payments.service import activate_finished_payment
@@ -95,45 +93,10 @@ async def confirm_paid_payment(bot: Bot, session: AsyncSession, payment: Payment
 
 
 async def _send_delivery_message(bot: Bot, session: AsyncSession, payment: Payment, username: str) -> None:
-    """Purchases and renewals deliver through the same shared message the
-    trial flow uses - only the headline differs."""
+    """The shared handover sequence (app/services/handover.py): the
+    credentials now, then the device picker that leads to the setup."""
     lang = (await get_language(session, payment.telegram_id)) or "en"
-    plan = await get_plan(session, payment.plan_id) if payment.plan_id is not None else None
-    await send_account_delivery(
-        bot,
-        payment.telegram_id,
-        kind=RENEWAL if payment.purpose == "renew" else PURCHASE,
-        plan=plan,
-        # The snapshot on the payment, never the plan's current value: an
-        # admin editing the catalog mid-payment must not change what this
-        # buyer was actually sold.
-        data_cap_mb=payment.data_cap_mb,
-        username=username,
-        password=await _recover_password(payment, username),
-        lang=lang,
-        fallback_plan_name=payment.group_name,
-    )
-    # Paid flows previously ended at the credentials and sent no setup
-    # material at all; this is what makes purchase, renewal and trial
-    # behave alike.
-    await send_openvpn_setup(bot, payment.telegram_id, session, lang=lang)
-
-
-async def _recover_password(payment: Payment, username: str) -> str | None:
-    """A purchase carries the password generated when its payment row was
-    created; a renewal does not, because the account keeps the one it
-    already has, so it is read back from IBSng exactly as the trial flow
-    does. A failure here must never fail the order - the service is
-    provisioned either way, and a missing password degrades to the
-    contact-support variant of the message."""
-    if payment.ibsng_password:
-        return payment.ibsng_password
-    try:
-        async with IBSngClient() as client:
-            return await client.get_user_password(username=username)
-    except IBSngError:
-        logger.warning("Payment %s: could not read the password back for %s", payment.id, username)
-        return None
+    await send_handover_prompt(bot, payment.telegram_id, session, payment_id=payment.id, lang=lang)
 
 
 async def _notify_activation_technical_issue(bot: Bot, session: AsyncSession, payment: Payment) -> None:

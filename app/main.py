@@ -12,7 +12,7 @@ from aiohttp import web
 from app.bot.error_handlers import handle_pool_timeout
 from app.bot.handlers import (
     admin, admin_admins, admin_block, admin_discounts, admin_fallback, admin_renew, admin_settings,
-    broadcast, buy, campaign, fallback, financial, myservices, openvpn_setup, renew, trial,
+    broadcast, buy, campaign, fallback, financial, handover, myservices, openvpn_setup, ownership, renew, trial,
     reports, tutorial_admin, tutorials, user_admin, users,
 )
 from app.bot.middlewares.blocked_user import BlockedUserMiddleware
@@ -85,9 +85,11 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.include_router(myservices.router)
     dp.include_router(tutorials.router)
     dp.include_router(openvpn_setup.router)
+    dp.include_router(handover.router)
     dp.include_router(users.router)
     dp.include_router(trial.router)
     dp.include_router(tutorial_admin.router)
+    dp.include_router(ownership.router)
     dp.include_router(fallback.router)
     return dp
 

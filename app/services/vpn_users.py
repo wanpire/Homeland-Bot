@@ -269,3 +269,75 @@ async def list_renewable_services(session: AsyncSession, telegram_id: int) -> li
         plan = await get_plan(session, vpn_user.plan_id) if vpn_user.plan_id is not None else None
         rows.append((vpn_user, plan))
     return rows
+
+
+# --- Self-service password reset (ported from AloBot) -----------------
+
+PASSWORD_CHANGE_COOLDOWN = dt.timedelta(days=30)
+
+
+class PasswordChangeCooldownError(Exception):
+    def __init__(self, remaining: dt.timedelta) -> None:
+        super().__init__(f"password changed recently; {remaining} left")
+        self.remaining = remaining
+
+
+class ForeignGroupError(Exception):
+    """The account's live IBSng group is not one of Homeland's. The
+    instance is shared with AloBot, so nothing here may modify it."""
+
+
+def password_change_remaining(vpn_user: VPNUser) -> dt.timedelta | None:
+    """None when this account may reset its password now, otherwise how
+    long until it may (once per 30 days, AloBot's rule)."""
+    if vpn_user.password_changed_at is None:
+        return None
+    changed_at = vpn_user.password_changed_at
+    if changed_at.tzinfo is None:
+        changed_at = changed_at.replace(tzinfo=dt.timezone.utc)
+    elapsed = dt.datetime.now(dt.timezone.utc) - changed_at
+    if elapsed >= PASSWORD_CHANGE_COOLDOWN:
+        return None
+    return PASSWORD_CHANGE_COOLDOWN - elapsed
+
+
+def cooldown_days_left(remaining: dt.timedelta) -> int:
+    return max(1, remaining.days + (1 if remaining.seconds else 0))
+
+
+async def reset_vpn_password(
+    session: AsyncSession, client: IBSngClient, *, vpn_user_id: int, telegram_id: int
+) -> tuple[VPNUser, str] | None:
+    """Generate and set a new password for an account this user owns;
+    the username never changes. Returns None when the account is not
+    theirs.
+
+    The row stays locked from the cooldown check to the stamp, so two
+    quick confirms cannot rotate the password twice. The live IBSng group
+    is re-checked first (CLAUDE.md: any path that modifies an account
+    must). Raises PasswordChangeCooldownError, ForeignGroupError, or the
+    IBSngError the client raised; nothing is stamped in those cases."""
+    from app.services.groups import is_homeland_group
+
+    vpn_user = (
+        await session.execute(
+            select(VPNUser)
+            .where(VPNUser.id == vpn_user_id, VPNUser.telegram_id == telegram_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if vpn_user is None:
+        return None
+    remaining = password_change_remaining(vpn_user)
+    if remaining is not None:
+        raise PasswordChangeCooldownError(remaining)
+
+    group = await client.get_user_group(username=vpn_user.ibsng_username)
+    if group is None or not is_homeland_group(group):
+        raise ForeignGroupError(vpn_user.ibsng_username)
+
+    new_password = _random_password(_PASSWORD_LEN)
+    await client.change_user_password(username=vpn_user.ibsng_username, new_password=new_password)
+    vpn_user.password_changed_at = dt.datetime.now(dt.timezone.utc)
+    await session.commit()
+    return vpn_user, new_password

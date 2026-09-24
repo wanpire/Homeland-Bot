@@ -91,3 +91,11 @@ def is_protocol_valid_for_platform(platform_label: str, protocol_label: str) -> 
     is_android = platform_label.strip().lower() == "android"
     is_l2tp = protocol_label.strip().lower() == "l2tp"
     return not (is_android and is_l2tp)
+
+
+def protocols_for_platform(platform: TutorialPlatform, protocols: list[TutorialProtocol]) -> list[TutorialProtocol]:
+    """The protocols a device can actually use, in the given order. The
+    handover sequence builds its protocol picker from this and skips the
+    picker when exactly one is left (Android: OpenVPN only), so any flow
+    that reuses the sequence inherits the rule rather than re-checking it."""
+    return [p for p in protocols if is_protocol_valid_for_platform(platform.label, p.label)]

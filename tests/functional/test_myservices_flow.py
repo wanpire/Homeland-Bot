@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 import pytest
@@ -9,6 +10,11 @@ from app.db.session import async_session_maker
 from tests.factories import make_callback_update
 from tests.fakes.fake_bot_session import FakeBotSession
 from tests.fakes.fake_ibsng_server import FakeIBSngServer
+
+
+def _plain(text: str) -> str:
+    """The text without the invisible bidi marks Persian info lines carry."""
+    return re.sub("[\u200f\u2068\u2069]", "", text)
 
 
 async def _create_service(seeded_catalog: dict, *, telegram_id: int, category: str, name: str, is_trial: bool = False):
@@ -27,7 +33,7 @@ async def _create_service(seeded_catalog: dict, *, telegram_id: int, category: s
 
 @pytest.mark.asyncio
 async def test_myservices_shows_empty_state_when_no_services(dispatcher: Any, bot: Any, fake_session: FakeBotSession) -> None:
-    await dispatcher.feed_update(bot, make_callback_update(701, "menu:myservices"))
+    await dispatcher.feed_update(bot, make_callback_update(701, "myservices:list"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
@@ -54,13 +60,13 @@ async def test_existing_trial_users_service_still_lists_when_trial_limit_disable
     async with async_session_maker() as session:
         await set_config(session, "trial_limit_enabled", "false")
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "myservices:list"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     texts = [b["text"] for b in buttons]
-    assert any(t.startswith("Trial — ✅ Active") for t in texts)
+    assert f"{service.ibsng_username} — ✅ Active" in texts
 
     fake_session.reset()
     await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
@@ -85,18 +91,14 @@ async def test_myservices_lists_services_with_status_badges(
     ibsng_server.set_user_attr(expired.ibsng_username, "nearest_exp_date", past)
     # pending: leave unset - the fake server's default has no nearest_exp_date
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "myservices:list"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    texts = [b["text"] for b in buttons]
-    assert "1 Month — ✅ Active" in texts
-    assert "2 Weeks — ⛔ Expired" in texts
-    assert sum(1 for t in texts if t.startswith("2 Months — ⏳ Pending")) == 1
-
     callback_by_text = {b["text"]: b["callback_data"] for b in buttons}
-    assert callback_by_text["1 Month — ✅ Active"] == f"myservices:view:{active.id}"
-    assert callback_by_text["2 Weeks — ⛔ Expired"] == f"myservices:view:{expired.id}"
+    assert callback_by_text[f"{active.ibsng_username} — ✅ Active"] == f"myservices:view:{active.id}"
+    assert callback_by_text[f"{expired.ibsng_username} — ⛔ Expired"] == f"myservices:view:{expired.id}"
+    assert callback_by_text[f"{pending.ibsng_username} — ⏳ Pending"] == f"myservices:view:{pending.id}"
 
 
 @pytest.mark.asyncio
@@ -108,14 +110,17 @@ async def test_myservices_detail_shows_plan_status_and_credentials(
     future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M")
     ibsng_server.set_user_attr(service.ibsng_username, "nearest_exp_date", future)
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:detail:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     text = edited[0][1]["text"]
-    assert "1 Month" in text
-    assert "✅ Active until" in text
-    assert service.ibsng_username in text
-    assert "Password:" in text
+    assert "<b>1 Month</b> 🔑" in text
+    assert "Status: ✅ Active" in text
+    assert "Volume: 10 GB" in text
+    assert f"Expires: {future} UTC" in text, "Gregorian YYYY-MM-DD HH:MM, as IBSng stores it"
+    assert f"Username: <code>{service.ibsng_username}</code>" in text
+    assert "Password: <code>" in text
+    assert "\u200f" not in text and "\u2068" not in text, "English lines carry no bidi marks"
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
     assert "🔄 Resend Setup" in buttons
     assert any("back" in b.lower() for b in buttons)
@@ -148,12 +153,12 @@ async def test_myservices_detail_password_lookup_failure_falls_back(
 
     monkeypatch.setattr(IBSngClient, "get_user_password", _boom)
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:detail:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     text = edited[0][1]["text"]
-    assert "✅ Active until" in text
+    assert "Status: ✅ Active" in text
     assert "unavailable" in text.lower()
     assert "contact support" in text.lower()
 
@@ -165,10 +170,11 @@ async def test_myservices_detail_shows_pending_status(
     telegram_id = 704
     service = await _create_service(seeded_catalog, telegram_id=telegram_id, category="scroll", name="1 Month")
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:detail:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert "not yet activated" in edited[0][1]["text"].lower()
+    assert "Status: ⏳ Pending" in edited[0][1]["text"]
+    assert "Expires: starts at first connection" in edited[0][1]["text"]
 
 
 @pytest.mark.asyncio
@@ -196,19 +202,20 @@ async def test_myservices_unknown_status_shows_badge_and_detail_message(
 
     monkeypatch.setattr(IBSngClient, "get_user_expiry", _boom)
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "myservices:list"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
     buttons = [b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    assert any(b.startswith("1 Month — ⚠️ Unknown") for b in buttons)
+    assert f"{service.ibsng_username} — ⚠️ Unknown" in buttons
 
     fake_session.reset()
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:detail:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert len(edited) == 1
-    assert "couldn't check status right now" in edited[0][1]["text"].lower()
+    assert "Status: ⚠️ Unknown" in edited[0][1]["text"]
+    assert "Expires: —" in edited[0][1]["text"]
 
 
 @pytest.mark.asyncio
@@ -447,7 +454,7 @@ async def test_myservices_empty_state_in_persian(dispatcher: Any, bot: Any, fake
         await record_seen(session, 710, None)
         await set_language(session, 710, "fa")
 
-    await dispatcher.feed_update(bot, make_callback_update(710, "menu:myservices"))
+    await dispatcher.feed_update(bot, make_callback_update(710, "myservices:list"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     assert "سرویسی ندارید" in edited[0][1]["text"]
@@ -472,35 +479,40 @@ async def test_myservices_detail_status_in_persian(
         await record_seen(session, telegram_id, None)
         await set_language(session, telegram_id, "fa")
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:detail:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    assert "وضعیت: ✅ فعال" in edited[0][1]["text"]
+    assert "وضعیت: ✅ فعال" in _plain(edited[0][1]["text"])
+    assert f"تاریخ انقضا: {future} UTC" in _plain(edited[0][1]["text"]), "Gregorian even for a Persian user"
 
 
 @pytest.mark.asyncio
-async def test_myservices_list_shows_plan_name_in_persian(
+async def test_myservices_list_labels_by_username_in_persian(
     dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict, ibsng_server: FakeIBSngServer
 ) -> None:
-    """Regression test: myservices_list_keyboard's button label must go
-    through plan_display_name(lang), not raw plan.name - a Persian user
-    must see the localized plan name on the services list, not English."""
+    """Several trials used to read identically ("تست رایگان — در انتظار");
+    the username makes every row distinct, and the status stays localized."""
+    from app.services.app_config import set_config
     from app.services.bot_users import record_seen, set_language
 
     telegram_id = 721
-    await _create_service(seeded_catalog, telegram_id=telegram_id, category="trip", name="2 Weeks")
+    async with async_session_maker() as session:
+        await set_config(session, "trial_limit_enabled", "false")
+    first = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trial", name="Trial", is_trial=True)
+    second = await _create_service(seeded_catalog, telegram_id=telegram_id, category="trial", name="Trial", is_trial=True)
 
     async with async_session_maker() as session:
         await record_seen(session, telegram_id, None)
         await set_language(session, telegram_id, "fa")
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "menu:myservices"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, "myservices:list"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
-    all_buttons = [b for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row]
-    matching = next(b for b in all_buttons if "callback_data" in b and b["callback_data"].startswith("myservices:view:"))
-    assert "۲ هفته" in matching["text"]
-    assert "2 Weeks" not in matching["text"]
+    labels = [
+        b["text"] for row in edited[0][1]["reply_markup"]["inline_keyboard"] for b in row
+        if b["callback_data"].startswith("myservices:view:")
+    ]
+    assert labels == [f"{first.ibsng_username} — ⏳ در انتظار", f"{second.ibsng_username} — ⏳ در انتظار"]
 
 
 @pytest.mark.asyncio
@@ -519,7 +531,7 @@ async def test_myservices_detail_shows_plan_name_in_persian(
         await record_seen(session, telegram_id, None)
         await set_language(session, telegram_id, "fa")
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:detail:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     text = edited[0][1]["text"]
@@ -545,9 +557,13 @@ async def test_myservices_detail_labels_are_persian_for_persian_user(
         await record_seen(session, telegram_id, None)
         await set_language(session, telegram_id, "fa")
 
-    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:view:{service.id}"))
+    await dispatcher.feed_update(bot, make_callback_update(telegram_id, f"myservices:detail:{service.id}"))
 
     edited = [c for c in fake_session.calls if c[0] == "editMessageText"]
     text = edited[0][1]["text"]
     assert "نام کاربری:" in text
     assert "Username:" not in text
+    # Each Persian info line: RLM, RTL label, colon, then the LTR value
+    # isolated - with the marks outside <code>, so tap-to-copy stays clean.
+    assert f"\u200fنام کاربری: \u2068<code>{service.ibsng_username}</code>\u2069" in text
+    assert re.search("\u200fرمز عبور: \u2068<code>[^<\u200f\u2068\u2069]+</code>\u2069", text)

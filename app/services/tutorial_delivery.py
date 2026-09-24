@@ -176,8 +176,8 @@ async def deliver_device_setup(
     bot: Bot, telegram_id: int, session: AsyncSession, *, protocol: TutorialProtocol,
     platform: TutorialPlatform, lang: str,
 ) -> int | None:
-    """The setup material for a device the customer has ALREADY chosen,
-    for a flow that asked for it up front (the trial). OpenVPN gets its
+    """The setup material for a device the customer has ALREADY chosen:
+    step 4 of the handover sequence (app/services/handover.py). OpenVPN gets its
     profile then that device's app link - the same two senders the
     post-handover setup step and its `ovpn:link:` picker use, and, like
     that step, no guide lookup (none exists for OpenVPN; see
