@@ -194,6 +194,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "myservices_list_button": "📋 My Accounts",
         "myservices_add_button": "➕ Add New Account",
         "back_to_menu_short": "🔙 Back to Menu",
+        "back_to_main_menu": "🔙 Back to Main Menu",
+        "sales_paused_default": (
+            "⏸ <b>Sales are temporarily paused.</b>\n\n"
+            "New purchases, renewals and trial activations are unavailable right now. "
+            "Your active services keep working as usual. Please try again later."
+        ),
         "back_plain": "🔙 Back",
         "account_menu_heading": "🛍 <b>{username}</b>{trial}\n\nChoose an option:",
         "account_trial_suffix": " (Trial)",
@@ -428,6 +434,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "myservices_list_button": "📋 لیست اکانت‌های من",
         "myservices_add_button": "➕ افزودن اکانت جدید",
         "back_to_menu_short": "🔙 بازگشت به منو",
+        "back_to_main_menu": "🔙 بازگشت به منوی اصلی",
+        "sales_paused_default": (
+            "⏸ <b>فروش موقتاً متوقف شده است.</b>\n\n"
+            "در حال حاضر امکان خرید، تمدید یا فعال‌سازی سرویس تست وجود ندارد. "
+            "سرویس‌های فعال شما بدون تغییر کار می‌کنند. لطفاً کمی بعد دوباره تلاش کنید."
+        ),
         "back_plain": "🔙 بازگشت",
         "account_menu_heading": "🛍 <b>{username}</b>{trial}\n\nیک گزینه را انتخاب کنید:",
         "account_trial_suffix": " (سرویس تست)",
