@@ -24,7 +24,8 @@ _ENABLED_KEY = "sales_enabled"
 _MESSAGE_KEYS: dict[str, str] = {"fa": "sales_paused_message_fa", "en": "sales_paused_message_en"}
 
 MESSAGE_LANGUAGES: tuple[str, ...] = ("fa", "en")
-#: Leaves headroom under Telegram's 4096-character message limit.
+#: Leaves headroom under Telegram's 4096 limit, which (like this one) is
+#: measured in UTF-16 code units, not Python code points.
 MAX_PAUSED_MESSAGE_LENGTH = 3500
 
 

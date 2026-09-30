@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, User
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +40,7 @@ _PREVIEW_LIMIT = 200
 _LANG_NAMES = {"fa": "Persian", "en": "English"}
 _LANG_FLAGS = {"fa": "🇮🇷 FA", "en": "🇬🇧 EN"}
 _EMPTY_TEXT = "⚠️ Send a non-empty message, or cancel."
+_NOT_TEXT_TEXT = "⚠️ Send the message as plain text, or cancel."
 _TOO_LONG_TEXT = f"⚠️ That is too long — keep it under {MAX_PAUSED_MESSAGE_LENGTH} characters, or cancel."
 _LOST_CONTEXT_TEXT = "⚠️ Something went wrong — please start again."
 
@@ -77,7 +79,13 @@ async def _render(callback: CallbackQuery) -> None:
     async with async_session_maker() as session:
         text, enabled = await _status(session)
     if callback.message is not None:
-        await callback.message.edit_text(text, reply_markup=sales_status_keyboard(enabled=enabled))
+        try:
+            await callback.message.edit_text(text, reply_markup=sales_status_keyboard(enabled=enabled))
+        except TelegramBadRequest as exc:
+            # Nothing changed on screen (Reset while already default, two
+            # racing taps): Telegram refuses the identical edit. Harmless.
+            if "not modified" not in str(exc).lower():
+                raise
 
 
 @router.callback_query(F.data == "adm:fin:sales")
@@ -126,11 +134,15 @@ async def sales_message_receive(message: Message, state: FSMContext) -> None:
         await message.answer(_LOST_CONTEXT_TEXT, reply_markup=back_to_financial_keyboard())
         return
 
-    value = (message.text or "").strip()
+    if message.text is None:
+        await message.answer(_NOT_TEXT_TEXT, reply_markup=sales_message_cancel_keyboard())
+        return
+    value = message.text.strip()
     if not value:
         await message.answer(_EMPTY_TEXT, reply_markup=sales_message_cancel_keyboard())
         return
-    if len(value) > MAX_PAUSED_MESSAGE_LENGTH:
+    # Telegram's limit counts UTF-16 code units, not code points.
+    if len(value.encode("utf-16-le")) // 2 > MAX_PAUSED_MESSAGE_LENGTH:
         await message.answer(_TOO_LONG_TEXT, reply_markup=sales_message_cancel_keyboard())
         return
 

@@ -9,6 +9,7 @@ confirmation: an invoice that is already paid is always honored."""
 
 from __future__ import annotations
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 
 from app.bot.keyboards.menus import show_screen
@@ -27,6 +28,12 @@ async def block_if_sales_paused(callback: CallbackQuery, lang: str) -> bool:
     if callback.message is not None:
         # show_screen, not edit_text: menu:trial can arrive from an Ad
         # Campaign photo, which cannot be edited into a text screen.
-        await show_screen(callback.message, text, sales_paused_keyboard(lang))
+        try:
+            await show_screen(callback.message, text, sales_paused_keyboard(lang))
+        except TelegramBadRequest as exc:
+            # A double tap re-renders the identical paused screen, which
+            # Telegram refuses as "not modified". Harmless: still answer.
+            if "not modified" not in str(exc).lower():
+                raise
     await callback.answer()
     return True

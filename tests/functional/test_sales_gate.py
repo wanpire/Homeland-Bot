@@ -277,3 +277,27 @@ async def test_an_invoice_paid_while_paused_is_still_provisioned(
         row = await session.get(Payment, payment.id)
         result = await confirm_paid_payment(bot, session, row)
     assert result.outcome == ACTIVATED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("callback_data", ["menu:trial", "buy:plan:{plan_id}"])
+async def test_a_double_tap_on_the_paused_screen_still_answers_the_callback(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, seeded_catalog: dict,
+    monkeypatch: pytest.MonkeyPatch, callback_data: str,
+) -> None:
+    """The identical paused screen re-rendered is refused by Telegram as
+    "not modified"; the gate must swallow that and still answer."""
+    from aiogram.exceptions import TelegramBadRequest
+
+    await _pause()
+    original = fake_session.make_request
+
+    async def _make_request(bot_: Any, method: Any, timeout: int | None = None) -> Any:
+        if method.__api_method__ == "editMessageText":
+            raise TelegramBadRequest(method=method, message="Bad Request: message is not modified: same content")
+        return await original(bot_, method, timeout)
+
+    monkeypatch.setattr(fake_session, "make_request", _make_request)
+    data = callback_data.format(plan_id=_plan_id(seeded_catalog))
+    await dispatcher.feed_update(bot, make_callback_update(5190, data))
+    assert any(name == "answerCallbackQuery" for name, _ in fake_session.calls)

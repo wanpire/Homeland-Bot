@@ -122,8 +122,12 @@ Status screen:
 State: 🟢 Sales enabled            (or 🔴 Sales disabled)
 
 Message shown to customers while disabled:
-🇮🇷 FA (custom|default): <preview>
-🇬🇧 EN (custom|default): <preview>
+
+🇮🇷 FA (custom|default):
+<preview>
+
+🇬🇧 EN (custom|default):
+<preview>
 ```
 
 A custom preview is the escaped text, truncated to 200 characters; the

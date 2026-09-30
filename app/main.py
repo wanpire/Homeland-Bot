@@ -77,8 +77,8 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.include_router(campaign.router)
     # MUST stay after every adm:*-handling router above (admin,
     # admin_admins, admin_block, admin_discounts, admin_renew,
-    # admin_settings, broadcast, campaign) - it claims any adm:* callback none of
-    # them matched, so registering it earlier would shadow a legitimate
+    # admin_settings, admin_sales, financial, user_admin, reports, broadcast,
+    # campaign) - it claims any adm:* callback none of them matched, so registering it earlier would shadow a legitimate
     # handler. The routers below it never claim adm:* data.
     dp.include_router(admin_fallback.router)
     dp.include_router(buy.router)

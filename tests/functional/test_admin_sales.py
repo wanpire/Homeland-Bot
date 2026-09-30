@@ -201,3 +201,82 @@ async def test_reset_restores_both_defaults(dispatcher: Any, bot: Any, fake_sess
         assert await get_custom_paused_message(session, "fa") is None
         assert await get_custom_paused_message(session, "en") is None
     assert _last_screen(fake_session)["text"].count("(default)") == 2
+
+
+# --- Telegram "message is not modified" -------------------------------------
+
+
+def _edit_text_raises(fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch, description: str) -> None:
+    """Make the fake session refuse editMessageText the way Telegram does
+    when the new text and keyboard equal what is on screen."""
+    from aiogram.exceptions import TelegramBadRequest
+
+    original = fake_session.make_request
+
+    async def _make_request(bot: Any, method: Any, timeout: int | None = None) -> Any:
+        if method.__api_method__ == "editMessageText":
+            raise TelegramBadRequest(method=method, message=description)
+        return await original(bot, method, timeout)
+
+    monkeypatch.setattr(fake_session, "make_request", _make_request)
+
+
+@pytest.mark.asyncio
+async def test_reset_on_an_already_default_screen_still_answers_the_callback(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _edit_text_raises(
+        fake_session, monkeypatch,
+        "Bad Request: message is not modified: specified new message content and reply markup "
+        "are exactly the same as a current content and reply markup of the message",
+    )
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:fin:sales:reset"))
+    assert any(name == "answerCallbackQuery" for name, _ in fake_session.calls)
+
+
+@pytest.mark.asyncio
+async def test_a_different_telegram_bad_request_is_not_swallowed(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from aiogram.exceptions import TelegramBadRequest
+
+    _edit_text_raises(fake_session, monkeypatch, "Bad Request: message to edit not found")
+    with pytest.raises(TelegramBadRequest, match="message to edit not found"):
+        await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:fin:sales:reset"))
+
+
+# --- Telegram counts UTF-16 code units, not code points ----------------------
+
+
+@pytest.mark.asyncio
+async def test_a_message_over_the_limit_in_utf16_units_is_refused(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.sales_status import get_custom_paused_message
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:fin:sales:msg:en"))
+    # 1800 code points, but 3600 UTF-16 units.
+    await dispatcher.feed_update(bot, make_message_update(FAKE_ADMIN_ID, "😀" * 1800))
+    assert "too long" in _last_screen(fake_session)["text"]
+    async with async_session_maker() as session:
+        assert await get_custom_paused_message(session, "en") is None
+
+
+# --- non-text input -----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_photo_is_refused_with_a_plain_text_hint(
+    dispatcher: Any, bot: Any, fake_session: FakeBotSession
+) -> None:
+    from app.services.sales_status import get_custom_paused_message
+    from tests.factories import make_photo_message_update
+
+    await dispatcher.feed_update(bot, make_callback_update(FAKE_ADMIN_ID, "adm:fin:sales:msg:en"))
+    await dispatcher.feed_update(bot, make_photo_message_update(FAKE_ADMIN_ID, file_id="abc"))
+    screen = _last_screen(fake_session)
+    assert "plain text" in screen["text"]
+    assert "non-empty" not in screen["text"]
+    assert any(cb == "adm:fin:sales" for cb in _buttons(screen).values())
+    async with async_session_maker() as session:
+        assert await get_custom_paused_message(session, "en") is None
