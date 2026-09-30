@@ -110,7 +110,7 @@ Callbacks (new, so nothing existing is renamed):
 | Callback | Action |
 |---|---|
 | `adm:fin:sales` | Status screen |
-| `adm:fin:sales:toggle` | Flip the flag, log it, re-render |
+| `adm:fin:sales:set:off` / `:set:on` | Set the flag to that value, log it if it changed, re-render |
 | `adm:fin:sales:msg:fa` / `:msg:en` | Prompt for that language's text (FSM) |
 | `adm:fin:sales:reset` | Clear both custom messages, re-render |
 
@@ -126,7 +126,13 @@ Message shown to customers while disabled:
 🇬🇧 EN (custom|default): <preview>
 ```
 
-Previews are the escaped text, truncated to 200 characters.
+A custom preview is the escaped text, truncated to 200 characters; the
+default is shown in full (it is short, fixed, and already valid HTML).
+
+The switch buttons name the state they SET rather than flipping the
+current one: a stale "Disable Sales" button tapped after another admin
+already disabled sales must not turn them back on. A tap that changes
+nothing re-renders the screen and logs nothing.
 
 Buttons: `🔴 Disable Sales` or `🟢 Enable Sales` (whichever applies) ·
 `✏️ Edit Message (FA)` · `✏️ Edit Message (EN)` · `↩️ Reset Messages
@@ -151,7 +157,7 @@ New entry in `app/services/adminlog.py`:
   "SALES STATUS", ("State", "Admin"), TOPIC_ADMIN_ACTIONS, "🛠 Admin Actions")`
 - `TOPIC_ADMIN_ACTIONS = "admin_actions"`
 
-Posted from the toggle handler after the flag is saved:
+Posted from the set handler after the flag is saved, only when it changed:
 `State` = `🔴 DISABLED` or `🟢 ENABLED`, `Admin` = `@username (id)` or
 the id alone. The timestamp is `render_event`'s own `Time:` line. The
 topic is created on first use by `logtopics.resolve_thread_id`, and
@@ -178,7 +184,7 @@ Functional tests, in the existing `tests/functional` style:
   pre-existing invoice.
 - `test_admin_sales.py` (admin): the Financial menu shows the button to
   full admins and hides it from sales admins; the toggle flips and
-  re-renders; the log event is sent with State and Admin; editing fa/en
+  re-renders; a stale set that changes nothing logs nothing; the log event is sent with State and Admin; editing fa/en
   stores the text; empty and oversized text are refused; reset restores
   the defaults; cancel clears the FSM.
 - Existing i18n parity tests cover the new keys in both languages.
