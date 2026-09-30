@@ -51,6 +51,7 @@ SERVER_HEALTH_ALERT = "server_health_alert"
 BACKUP = "backup"
 ACCOUNTING = "accounting"
 OWNERSHIP = "ownership"
+SALES_STATUS = "sales_status"
 
 #: Topic keys. Several event types share one (an ok and an alert belong
 #: in the same thread), which is why the topic is its own field.
@@ -63,6 +64,7 @@ TOPIC_SERVER = "server_health"
 TOPIC_SERVICE = "service_health"
 TOPIC_ACCOUNTING = "accounting"
 TOPIC_ACCOUNTS = "accounts"
+TOPIC_ADMIN_ACTIONS = "admin_actions"
 
 _HEALTH_FIELDS = ("Component", "Detail", "Checks")
 _PAYMENT_FIELDS = ("User", "Plan", "Amount", "Provider", "Account")
@@ -90,6 +92,9 @@ EVENTS: dict[str, EventType] = {
     ),
     OWNERSHIP: EventType(
         OWNERSHIP, "🔄", "OWNERSHIP TRANSFER", ("Account", "From", "To"), TOPIC_ACCOUNTS, "🔑 Accounts"
+    ),
+    SALES_STATUS: EventType(
+        SALES_STATUS, "🛑", "SALES STATUS", ("State", "Admin"), TOPIC_ADMIN_ACTIONS, "🛠 Admin Actions"
     ),
 }
 

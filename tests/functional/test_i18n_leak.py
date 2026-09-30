@@ -8,6 +8,7 @@ _ADMIN_MODULES = (
     "admin_block.py",
     "admin_discounts.py",
     "admin_renew.py",
+    "admin_sales.py",
     "admin_settings.py",
     "admin_fallback.py",
     "broadcast.py",

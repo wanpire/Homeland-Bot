@@ -44,6 +44,7 @@ def admin_financial_menu(*, is_full_admin: bool) -> InlineKeyboardMarkup:
     builder.button(text="🏷 Discount Codes", callback_data="adm:discounts")
     builder.button(text="💰 Manage Plans", callback_data="adm:settings:plans")
     if is_full_admin:
+        builder.button(text="🛑 Sales Status", callback_data="adm:fin:sales")
         builder.button(text="💳 Crypto Settlement Address", callback_data="adm:settings:crypto")
         builder.button(text="💱 Crypto Coins", callback_data="adm:settings:coins")
         builder.button(text="🔄 Recover Stuck Payments", callback_data="adm:settings:reconcile")

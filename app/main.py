@@ -11,7 +11,7 @@ from aiohttp import web
 
 from app.bot.error_handlers import handle_pool_timeout
 from app.bot.handlers import (
-    admin, admin_admins, admin_block, admin_discounts, admin_fallback, admin_renew, admin_settings,
+    admin, admin_admins, admin_block, admin_discounts, admin_fallback, admin_renew, admin_sales, admin_settings,
     broadcast, buy, campaign, fallback, financial, handover, myservices, openvpn_setup, ownership, renew, trial,
     reports, tutorial_admin, tutorials, user_admin, users,
 )
@@ -69,6 +69,7 @@ def build_dispatcher(storage: BaseStorage) -> Dispatcher:
     dp.include_router(admin_discounts.router)
     dp.include_router(admin_renew.router)
     dp.include_router(admin_settings.router)
+    dp.include_router(admin_sales.router)
     dp.include_router(financial.router)
     dp.include_router(user_admin.router)
     dp.include_router(reports.router)

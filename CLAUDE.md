@@ -188,6 +188,17 @@ Redis (FSM), pydantic-settings, Docker Compose.
   accounting summary daily at 08:00 UTC, from the same `reporting.py`
   queries the Reports screens read. `app/services/backup.py` runs the
   nightly pg_dump whose result that group reports.
+- Sales switch (`app/services/sales_status.py` + `app/bot/sales_gate.py`,
+  admin screen Financial → 🛑 Sales Status, full admins only): the ONE
+  on/off for new sales, `app_config` key `sales_enabled` (absent =
+  enabled). `block_if_sales_paused` runs first in exactly six handlers -
+  `buy:plan`, `buy:confirm`, `renew:plan`, `renew:confirm`, `menu:trial`,
+  `trial:confirm` - so menus stay browsable and the block lands on
+  selection. Never gate payment confirmation or the reconciler: an
+  invoice already paid is always honored. The admin buttons SET a state
+  (`adm:fin:sales:set:on|off`), never toggle, so a stale keyboard can't
+  flip sales back on; each real change posts `SALES_STATUS` to the
+  🛠 Admin Actions topic.
 - Reports (`adm:reports`) is a menu: Overview, Signups, Sales,
   Accounting (each with the period selector, `adm:reports:<kind>:<period>`),
   Service Health, Server Health, Backups. Sales-gated throughout.
