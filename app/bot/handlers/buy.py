@@ -14,6 +14,7 @@ from app.bot.keyboards.buy import (
 )
 from app.bot.keyboards.menus import show_screen
 from app.bot.keyboards.trial import back_to_menu_keyboard
+from app.bot.sales_gate import block_if_sales_paused
 from app.db.models.plan import Plan
 from app.db.session import async_session_maker
 from app.i18n.texts import t
@@ -97,6 +98,8 @@ async def _price_summary_text(session: AsyncSession, plan: Plan, lang: str) -> s
 
 @router.callback_query(F.data.startswith("buy:plan:"))
 async def buy_plan_cb(callback: CallbackQuery, lang: str) -> None:
+    if await block_if_sales_paused(callback, lang):
+        return
     plan_id = int(callback.data.split(":")[-1])
     async with async_session_maker() as session:
         plan = await get_plan(session, plan_id)
@@ -119,6 +122,8 @@ async def buy_confirm_cb(callback: CallbackQuery, lang: str) -> None:
     """Creates the Plisio invoice and hands over the link. No coin is
     chosen here: Plisio's own invoice page lets the buyer pick among the
     coins this account accepts, and switch if one doesn't suit them."""
+    if await block_if_sales_paused(callback, lang):
+        return
     plan_id = int(callback.data.split(":")[-1])
     telegram_id = callback.from_user.id
     async with async_session_maker() as session:

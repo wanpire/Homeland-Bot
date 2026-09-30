@@ -16,6 +16,7 @@ from app.bot.keyboards.renew import (
     renew_service_keyboard,
 )
 from app.bot.keyboards.trial import back_to_menu_keyboard
+from app.bot.sales_gate import block_if_sales_paused
 from app.db.models.plan import Plan
 from app.db.models.vpn_user import VPNUser
 from app.db.session import async_session_maker
@@ -192,6 +193,8 @@ async def _renew_summary_text(session: AsyncSession, current_name: str, plan: Pl
 
 @router.callback_query(F.data.startswith("renew:plan:"))
 async def renew_plan_cb(callback: CallbackQuery, lang: str) -> None:
+    if await block_if_sales_paused(callback, lang):
+        return
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 
@@ -232,6 +235,8 @@ async def renew_plan_cb(callback: CallbackQuery, lang: str) -> None:
 async def renew_confirm_cb(callback: CallbackQuery, lang: str) -> None:
     """Creates the Plisio invoice and hands over the link. Like Buy, no
     coin is chosen here - Plisio's invoice page handles that."""
+    if await block_if_sales_paused(callback, lang):
+        return
     parts = callback.data.split(":")
     telegram_id = callback.from_user.id
 

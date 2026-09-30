@@ -8,6 +8,7 @@ from app.bot.handlers.handover import platform_back_callback, run_handover
 from app.bot.keyboards.handover import handover_platform_keyboard
 from app.bot.keyboards.menus import show_screen
 from app.bot.keyboards.trial import back_to_menu_keyboard, trial_confirm_keyboard
+from app.bot.sales_gate import block_if_sales_paused
 from app.db.models.tutorial_platform import TutorialPlatform
 from app.db.models.tutorial_protocol import TutorialProtocol
 from app.db.models.vpn_user import VPNUser
@@ -33,6 +34,8 @@ _MAX_CREATE_ATTEMPTS = 3
 
 @router.callback_query(F.data == "menu:trial")
 async def trial_entry_cb(callback: CallbackQuery, lang: str) -> None:
+    if await block_if_sales_paused(callback, lang):
+        return
     async with async_session_maker() as session:
         already_used = await has_used_trial(session, callback.from_user.id)
 
@@ -48,6 +51,8 @@ async def trial_entry_cb(callback: CallbackQuery, lang: str) -> None:
 
 @router.callback_query(F.data == "trial:confirm")
 async def trial_confirm_cb(callback: CallbackQuery, lang: str) -> None:
+    if await block_if_sales_paused(callback, lang):
+        return
     telegram_id = callback.from_user.id
 
     # "trial:confirm" is a bare callback_data string: an old message's
